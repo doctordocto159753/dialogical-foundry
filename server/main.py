@@ -260,6 +260,9 @@ def _validated_node_config(node_id: str, value: dict[str, Any]) -> dict[str, Any
         raise HTTPException(422, "deep research mode is only available for the researcher node")
     if mode == "deep_research" and provider not in {"anthropic", "openai", "gemini"}:
         raise HTTPException(422, "deep research mode requires Anthropic, OpenAI, or Gemini")
+    openai_api = value.get("openai_api", "chat_completions")
+    if openai_api not in {"chat_completions", "responses"}:
+        raise HTTPException(422, "unsupported OpenAI API transport")
     for field_name in ("model", "normalization_model"):
         field_value = value.get(field_name)
         if field_name == "normalization_model" and mode != "deep_research":

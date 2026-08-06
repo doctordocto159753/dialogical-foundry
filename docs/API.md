@@ -35,7 +35,7 @@ Event types are `run.started`, `run.interrupted`, `layer.started`, `node.started
 
 - `GET/PUT /api/settings` — format/loop defaults and search provider/key reference.
 - `GET /api/settings/nodes` — merged pipeline defaults and stored node overrides.
-- `PUT /api/settings/nodes/{node_id}` — provider, exact model ID, `api_key_ref`, per-node Base URL, sampling, max tokens, tools, execution mode, and Deep Research controls. `deep_research` is accepted only for `researcher` with Anthropic, OpenAI, or Gemini and a non-empty normalization model ID.
+- `PUT /api/settings/nodes/{node_id}` — provider, exact model ID, `api_key_ref`, per-node Base URL, sampling, max tokens, tools, execution mode, and Deep Research controls. OpenAI's `openai_api` accepts `chat_completions` or `responses`; the latter streams standard and normalization calls. `deep_research` is accepted only for `researcher` with Anthropic, OpenAI, or Gemini and a non-empty normalization model ID.
 
 ## Keys
 

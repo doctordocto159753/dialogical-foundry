@@ -96,9 +96,15 @@ def test_settings_and_write_only_keys(tmp_path, monkeypatch):
         assert "super-secret" not in str(listing)
         nodes = http.get("/api/settings/nodes").json()
         assert len(nodes) == 9
-        updated = http.put(f"/api/settings/nodes/{nodes[0]['id']}", json={"provider": "openai", "model": "gpt-5-mini", "api_key_ref": key_id, "temperature": 0.3})
+        updated = http.put(f"/api/settings/nodes/{nodes[0]['id']}", json={"provider": "openai", "model": "gpt-5-mini", "openai_api": "responses", "api_key_ref": key_id, "temperature": 0.3})
         assert updated.status_code == 200
         assert updated.json()["api_key_ref"] == key_id
+        assert updated.json()["openai_api"] == "responses"
+        rejected = http.put(
+            f"/api/settings/nodes/{nodes[0]['id']}",
+            json={"provider": "openai", "model": "gpt-5-mini", "openai_api": "legacy"},
+        )
+        assert rejected.status_code == 422
         assert http.delete(f"/api/keys/{key_id}").status_code == 204
 
 

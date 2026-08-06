@@ -27,7 +27,7 @@ Other application settings should normally be managed in the UI.
 
 ## Node fields
 
-Every node independently resolves `provider`, `model`, `api_key_ref`, `base_url`, `temperature`, `top_k`, `top_p`, `max_tokens`, and `tools`. An override is stored in SQLite; the original pipeline JSON remains the prompt/configuration baseline.
+Every node independently resolves `provider`, `model`, `api_key_ref`, `base_url`, `openai_api`, `temperature`, `top_k`, `top_p`, `max_tokens`, and `tools`. An override is stored in SQLite; the original pipeline JSON remains the prompt/configuration baseline.
 
 Base URL precedence is:
 
@@ -42,13 +42,14 @@ Providers:
 - `mock` — deterministic structured artifacts, supports `top_k`, no key.
 - `mock_notopk` — deterministic no-`top_k` capability probe, no key.
 - `anthropic` — Anthropic Messages API and returned usage metadata.
-- `openai` — OpenAI Chat Completions JSON-object mode and returned usage metadata.
+- `openai` — selectable Chat Completions or streamed Responses API execution and returned usage metadata.
 - `gemini` — Gemini `models.generateContent` with JSON-schema output and returned usage metadata.
 
 Configure model names supported by your provider account. Foundry does not alias, upgrade, trim, prefix, or otherwise replace a saved model ID. OpenAI and Anthropic receive it as the request `model`; Gemini standard calls use it as the `{model}` path value; Gemini Deep Research receives it as the request `agent`. Leading/trailing whitespace is rejected rather than silently changed. Paid-provider availability and names can change independently of Foundry.
 
-OpenAI-compatible gateways must support Chat Completions and JSON-object response
-format; their Deep Research mode must additionally support the Responses API and background retrieval. Anthropic gateways must implement the Messages API and its server-side web-search tool for Deep Research. Gemini-compatible endpoints must implement GenerateContent and, for Deep Research, the Interactions API.
+For an OpenAI node, `openai_api=chat_completions` sends a non-streaming `/chat/completions` JSON-object request. `openai_api=responses` sends a streaming `/responses` request, collects `response.output_text.delta` events, and reads usage from `response.completed`. Streaming is useful when a compatible gateway or reverse proxy requires response traffic during long model work. Official OpenAI receives JSON-object format configuration; compatible gateways receive a minimal Responses payload and rely on the explicit JSON-only prompt plus Foundry's schema validation. Deep Research always uses the provider-native Responses background-job path regardless of this standard-completion selector.
+
+An OpenAI-compatible gateway must implement the selected route. Its Deep Research mode must additionally support Responses background creation and retrieval. For non-official gateways, Foundry disables hidden OpenAI SDK retries and leaves retry authority with the visible three-attempt node loop; it also sends `FOUNDRY_OPENAI_COMPAT_USER_AGENT`. Anthropic gateways must implement the Messages API and its server-side web-search tool for Deep Research. Gemini-compatible endpoints must implement GenerateContent and, for Deep Research, the Interactions API.
 
 For official OpenAI Chat Completions, `gpt-5*`, `o1*`, `o3*`, and `o4*` model IDs use `max_completion_tokens` and omit `temperature`/`top_p`, matching the restricted reasoning-model parameter surface. Other official models and OpenAI-compatible gateways retain `max_tokens`, `temperature`, and `top_p`. Non-official gateways receive `FOUNDRY_OPENAI_COMPAT_USER_AGENT`; override it only when the gateway requires a different single-line User-Agent.
 

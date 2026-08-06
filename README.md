@@ -88,7 +88,7 @@ Open <http://127.0.0.1:8000>. The named `foundry-data` volume persists the datab
 ## Configure real providers
 
 1. Open **Settings → Local keys** and save an Anthropic, OpenAI, Gemini, or Tavily key. Saved values are never returned to the browser; only label, provider, and fingerprint are listed.
-2. Expand a node, select its provider/model/key reference, optionally set its Base URL, tune sampling, and save it. The model ID is sent exactly as entered.
+2. Expand a node, select its provider/model/key reference, optionally set its Base URL, tune sampling, and save it. OpenAI nodes can independently use Chat Completions or streamed Responses. The model ID is sent exactly as entered.
 3. Select Tavily in **Search & defaults**, choose the Tavily key, and save defaults.
 4. Start a new run. Configuration is resolved when the run begins.
 
@@ -109,7 +109,7 @@ FOUNDRY_OPENAI_COMPAT_USER_AGENT=curl/8.0
 For a gateway running on the host while Foundry runs in Docker, replace
 `127.0.0.1` with `host.docker.internal`. See [configuration and providers](docs/CONFIGURATION.md).
 
-Use an API root for OpenAI-compatible Base URLs, not a final operation path. Foundry also safely normalizes accidentally pasted trailing `/chat/completions` or `/responses` paths. Official OpenAI reasoning-family Chat Completions automatically use `max_completion_tokens` and omit unsupported sampling fields; compatible gateways retain the conventional `max_tokens` request and receive the configurable compatibility User-Agent.
+Use an API root for OpenAI-compatible Base URLs, not a final operation path. Foundry also safely normalizes accidentally pasted trailing `/chat/completions` or `/responses` paths. Choose **Responses API · streamed** for Responses-compatible gateways such as coding-agent relays: the connection receives SSE events while the model works, and Foundry assembles and validates the final JSON. Choose **Chat Completions** for gateways that only implement `/chat/completions`. Official OpenAI reasoning-family Chat Completions automatically use `max_completion_tokens` and omit unsupported sampling fields; compatible gateways retain the conventional `max_tokens` request and receive the configurable compatibility User-Agent.
 
 ### Deep Research
 
@@ -194,6 +194,7 @@ This is a local single-user security model, not a remote multi-tenant secret vau
 - **`npm.ps1` cannot be loaded:** use `npm.cmd` in PowerShell.
 - **Frontend landing page says it is not built:** run `npm.cmd ci && npm.cmd run build` inside `frontend/`, then restart FastAPI.
 - **A real node says its key is missing:** add the key in Settings and assign its reference to that node.
+- **An OpenAI-compatible coding gateway returns Cloudflare `524`:** select **Responses API · streamed** on that node when the gateway implements `/responses`. The 30-minute Foundry timeout cannot extend an upstream reverse-proxy timeout for a silent non-streaming request.
 - **Tavily is selected but not configured:** save a Tavily key and select it under Search & defaults, or switch search back to mock.
 - **Docker cannot connect:** start Docker Desktop/daemon before `docker compose up --build`.
 - **Run stopped after a restart:** open the run and choose Resume; inspect the visible error and `data/runs/<id>/state.json` if recovery is refused.

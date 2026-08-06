@@ -26,6 +26,7 @@ class ModelConfig:
     max_tokens: int = 4096
     api_key_ref: str | None = None
     base_url: str | None = None
+    openai_api: str = "chat_completions"  # chat_completions | responses
     mode: str = "standard"          # standard | deep_research (Researcher only)
     normalization_model: str | None = None
     research_timeout_seconds: int = 1800

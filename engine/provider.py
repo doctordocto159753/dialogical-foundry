@@ -112,6 +112,11 @@ def _openai_reasoning_chat_parameters(model: str, base_url: str | None) -> bool:
     return normalized_model.startswith(("gpt-5", "o1", "o3", "o4"))
 
 
+def _openai_reasoning_model(model: str) -> bool:
+    normalized_model = model.lower()
+    return normalized_model.startswith(("gpt-5", "o1", "o3", "o4"))
+
+
 def _research_prompt(request: CompletionRequest) -> str:
     return "\n\n".join(
         f"{message['role'].upper()}:\n{message['content']}" for message in request.messages
@@ -440,9 +445,19 @@ class OpenAIProvider(LLMProvider):
             options["default_headers"] = {
                 "User-Agent": _openai_compat_user_agent()
             }
+            # Foundry owns the visible node retry loop. Disabling the SDK's hidden
+            # retries avoids multiplying a gateway timeout into nine HTTP attempts.
+            options["max_retries"] = 0
         return OpenAI(api_key=self.api_key, **options)
 
     def _complete_standard(self, request: CompletionRequest) -> CompletionResult:
+        if request.model.openai_api == "responses":
+            return self._complete_responses_stream(request)
+        if request.model.openai_api != "chat_completions":
+            raise RuntimeError(f"unsupported OpenAI API transport: {request.model.openai_api}")
+        return self._complete_chat_completions(request)
+
+    def _complete_chat_completions(self, request: CompletionRequest) -> CompletionResult:
         base_url = _openai_base_url(request.model.base_url)
         kwargs: dict[str, Any] = {
             "model": request.model.model,
@@ -466,7 +481,69 @@ class OpenAIProvider(LLMProvider):
         return CompletionResult(
             text=text,
             usage={"input_tokens": usage.prompt_tokens if usage else 0, "output_tokens": usage.completion_tokens if usage else 0},
-            provider_metadata={"requested_model": request.model.model},
+            provider_metadata={
+                "requested_model": request.model.model,
+                "openai_api": "chat_completions",
+            },
+        )
+
+    def _complete_responses_stream(self, request: CompletionRequest) -> CompletionResult:
+        base_url = _openai_base_url(request.model.base_url)
+        kwargs: dict[str, Any] = {
+            "model": request.model.model,
+            "instructions": request.system,
+            "input": request.messages,
+            "stream": True,
+        }
+        if _is_official_openai_base_url(base_url):
+            kwargs["text"] = {"format": {"type": "json_object"}}
+        if request.model.max_tokens is not None:
+            kwargs["max_output_tokens"] = request.model.max_tokens
+        if not _openai_reasoning_model(request.model.model):
+            kwargs["temperature"] = request.model.temperature
+            if request.model.top_p is not None:
+                kwargs["top_p"] = request.model.top_p
+
+        chunks: list[str] = []
+        finalized_text = ""
+        final_response = None
+        stream = self._client(request).responses.create(**kwargs)
+        for event in stream:
+            event_type = getattr(event, "type", "")
+            if event_type == "response.output_text.delta":
+                chunks.append(str(getattr(event, "delta", "")))
+            elif event_type == "response.output_text.done":
+                finalized_text = str(getattr(event, "text", ""))
+            elif event_type == "response.completed":
+                final_response = getattr(event, "response", None)
+            elif event_type in {"response.failed", "response.incomplete"}:
+                response = getattr(event, "response", None)
+                detail = getattr(response, "error", None) or getattr(
+                    response, "incomplete_details", None
+                )
+                raise RuntimeError(f"OpenAI Responses stream ended with {event_type}: {detail}")
+            elif event_type == "error":
+                raise RuntimeError(
+                    f"OpenAI Responses stream error: {getattr(event, 'message', 'unknown error')}"
+                )
+
+        text = "".join(chunks)
+        if not text:
+            text = finalized_text or str(getattr(final_response, "output_text", "") or "")
+        if not text:
+            raise RuntimeError("OpenAI Responses stream completed without text output")
+        usage = getattr(final_response, "usage", None)
+        return CompletionResult(
+            text=text,
+            usage={
+                "input_tokens": getattr(usage, "input_tokens", 0) if usage else 0,
+                "output_tokens": getattr(usage, "output_tokens", 0) if usage else 0,
+            },
+            provider_metadata={
+                "requested_model": request.model.model,
+                "openai_api": "responses",
+                "streamed": True,
+            },
         )
 
     def _complete_deep_research(self, request: CompletionRequest) -> CompletionResult:

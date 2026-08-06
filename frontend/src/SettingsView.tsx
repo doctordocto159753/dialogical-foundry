@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from "react";
-import { api, AppSettings, LoopCounts, ModelMode, NodeSettings, OutputFormat, Provider, SavedKey, SearchProvider } from "./api";
+import { api, AppSettings, LoopCounts, ModelMode, NodeSettings, OpenAIAPI, OutputFormat, Provider, SavedKey, SearchProvider } from "./api";
 
 const FALLBACK_SETTINGS: AppSettings = {
   default_format: "json",
@@ -149,6 +149,7 @@ function NodeRow({ node, index, keys, onSaved, onError }: { node: NodeSettings; 
         provider: draft.provider,
         model: draft.model,
         base_url: draft.base_url?.trim() || null,
+        openai_api: draft.openai_api,
         mode: draft.mode,
         normalization_model: draft.normalization_model || null,
         research_timeout_seconds: draft.research_timeout_seconds,
@@ -183,6 +184,7 @@ function NodeRow({ node, index, keys, onSaved, onError }: { node: NodeSettings; 
       <div className="node-config">
         <label><span>Provider</span><select value={draft.provider} onChange={(event) => { const provider = event.target.value as Provider; patch("provider", provider); if (provider.startsWith("mock")) patch("mode", "standard"); }}><option value="mock">Mock</option><option value="mock_notopk">Mock · no top-k</option><option value="anthropic">Anthropic</option><option value="openai">OpenAI</option><option value="gemini">Gemini</option></select></label>
         {isResearcher ? <label><span>Execution mode</span><select value={draft.mode} disabled={draft.provider.startsWith("mock")} onChange={(event) => patch("mode", event.target.value as ModelMode)}><option value="standard">Standard completion</option><option value="deep_research">Provider Deep Research</option></select></label> : null}
+        {isOpenAi ? <label><span>OpenAI API <small>standard + normalization</small></span><select value={draft.openai_api} onChange={(event) => patch("openai_api", event.target.value as OpenAIAPI)}><option value="responses">Responses API · streamed</option><option value="chat_completions">Chat Completions</option></select></label> : null}
         <label><span>{draft.provider === "gemini" && isDeepResearch ? "Agent ID" : "Model ID"}</span><input value={draft.model} onChange={(event) => patch("model", event.target.value)} placeholder={draft.provider === "gemini" && isDeepResearch ? "deep-research-preview-04-2026" : "Exact provider model ID"} /></label>
         <label><span>Key reference</span><select value={draft.api_key_ref ?? ""} disabled={draft.provider.startsWith("mock")} onChange={(event) => patch("api_key_ref", event.target.value || null)}><option value="">{draft.provider.startsWith("mock") ? "Not needed" : "Select saved key"}</option>{matchingKeys.map((key) => <option key={key.id} value={key.id}>{key.label} · {key.fingerprint}</option>)}</select></label>
         <label className="base-url-field"><span>Base URL <small>blank = environment/provider default</small></span><input type="url" value={draft.base_url ?? ""} onChange={(event) => patch("base_url", event.target.value || null)} placeholder={draft.provider === "gemini" ? "https://generativelanguage.googleapis.com/v1beta" : draft.provider === "openai" ? "https://api.openai.com/v1" : "Provider API root"} /></label>
@@ -199,7 +201,7 @@ function NodeRow({ node, index, keys, onSaved, onError }: { node: NodeSettings; 
           <label><span>{draft.provider === "anthropic" ? "Max searches" : "Max tool calls"}</span><input type="number" min="1" max="1000" disabled={draft.provider === "gemini"} value={draft.research_max_tool_calls} onChange={(event) => patch("research_max_tool_calls", Number(event.target.value))} /></label>
           {draft.provider === "gemini" ? <label className="check-field"><span>Gemini agent options</span><span className="check-option"><input type="checkbox" checked={draft.research_thinking_summaries} onChange={(event) => patch("research_thinking_summaries", event.target.checked)} /> Thinking summaries</span><span className="check-option"><input type="checkbox" checked={draft.research_visualization} onChange={(event) => patch("research_visualization", event.target.checked)} /> Visualizations</span></label> : null}
         </> : null}
-        <div className="node-save"><p>{isOpenAi ? "Creative fallback will be automatic." : draft.provider.startsWith("mock") ? "Deterministic and key-free." : "Uses the selected local key reference."}</p><button type="button" className="save-action" onClick={() => void save()} disabled={saving}>{saving ? "Saving…" : "Save node"}</button></div>
+        <div className="node-save"><p>{isOpenAi && draft.openai_api === "responses" ? "Responses streaming keeps compatible gateway connections active." : isOpenAi ? "Creative fallback will be automatic." : draft.provider.startsWith("mock") ? "Deterministic and key-free." : "Uses the selected local key reference."}</p><button type="button" className="save-action" onClick={() => void save()} disabled={saving}>{saving ? "Saving…" : "Save node"}</button></div>
       </div>
     </details>
   );

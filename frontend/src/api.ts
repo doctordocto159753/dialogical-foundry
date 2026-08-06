@@ -2,6 +2,7 @@ export type OutputFormat = "json" | "md" | "both";
 export type RunStatus = "pending" | "running" | "completed" | "failed" | "interrupted";
 export type Provider = "mock" | "mock_notopk" | "anthropic" | "openai" | "gemini";
 export type ModelMode = "standard" | "deep_research";
+export type OpenAIAPI = "chat_completions" | "responses";
 export type SearchProvider = "mock" | "tavily";
 
 export interface LoopCounts {
@@ -66,6 +67,7 @@ export interface NodeSettings {
   provider: Provider;
   model: string;
   base_url?: string | null;
+  openai_api: OpenAIAPI;
   mode: ModelMode;
   normalization_model?: string | null;
   research_timeout_seconds: number;
