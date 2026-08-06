@@ -1,0 +1,1 @@
+{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","required":["conformance","over_engineering","summary","verdict"],"properties":{"conformance":{"type":"array"},"over_engineering":{"type":"array"},"summary":{"type":"string"},"verdict":{"enum":["pass","revise"]}}}

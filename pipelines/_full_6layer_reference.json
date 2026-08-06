@@ -1,0 +1,178 @@
+{
+  "name": "software_product_v0",
+  "default_format": "json",
+  "nodes": [
+    {
+      "id": "intake",
+      "role": "Intake Normalizer",
+      "system_prompt": "STUB: Normalize the user brief and artifacts into a clean, structured problem statement.",
+      "model": {"provider": "mock", "model": "mock-normalizer", "temperature": 0.2},
+      "inputs": ["user"]
+    },
+    {
+      "id": "idea_generator",
+      "role": "Idea Generator",
+      "system_prompt": "STUB: Expand the problem into a bold, expansive ideation document. Feasibility is not a constraint here.",
+      "model": {"provider": "mock", "model": "mock-creative", "temperature": 1.0, "top_k": 100, "top_p": 0.98},
+      "inputs": ["intake", "judge"]
+    },
+    {
+      "id": "researcher",
+      "role": "Researcher",
+      "system_prompt": "STUB: Deep-research each claim in the ideation doc; attach evidence per point.",
+      "model": {"provider": "mock", "model": "mock-research", "temperature": 0.3},
+      "inputs": ["idea_generator"],
+      "tools": ["web_search"]
+    },
+    {
+      "id": "judge",
+      "role": "Wise Judge",
+      "system_prompt": "STUB: Critically review the ideation doc + research; list flaws, risks, and required fixes; return feedback.",
+      "model": {"provider": "mock", "model": "mock-critic", "temperature": 0.4},
+      "inputs": ["idea_generator", "researcher"]
+    },
+    {
+      "id": "judge_finalize",
+      "role": "Wise Judge (PRD)",
+      "system_prompt": "STUB: Using the final ideation doc + research + your critiques, autonomously produce a comprehensive professional PRD.",
+      "model": {"provider": "mock", "model": "mock-prd", "temperature": 0.4},
+      "inputs": ["idea_generator", "researcher", "judge"]
+    },
+    {
+      "id": "architect",
+      "role": "Senior Architect",
+      "system_prompt": "STUB: From the PRD, produce a macro technical architecture document.",
+      "model": {"provider": "mock", "model": "mock-arch", "temperature": 0.4},
+      "inputs": ["judge_finalize", "matcher"]
+    },
+    {
+      "id": "matcher",
+      "role": "Conformance Matcher",
+      "system_prompt": "STUB: Check the architecture doc against the PRD; report gaps and mismatches as feedback.",
+      "model": {"provider": "mock", "model": "mock-match", "temperature": 0.2},
+      "inputs": ["architect", "judge_finalize"]
+    },
+    {
+      "id": "task_writer",
+      "role": "Task Writer",
+      "system_prompt": "STUB: Turn the architecture into ordered, coded user stories; tag each dev|design-frontend|devops; set priority.",
+      "model": {"provider": "mock", "model": "mock-tasks", "temperature": 0.3},
+      "inputs": ["architect", "wp_reviewer"]
+    },
+    {
+      "id": "wp_reviewer",
+      "role": "Work-Package Reviewer",
+      "system_prompt": "STUB: Review the work package for scope, ordering, coverage; return feedback.",
+      "model": {"provider": "mock", "model": "mock-wpr", "temperature": 0.2},
+      "inputs": ["task_writer"]
+    },
+    {
+      "id": "dev",
+      "role": "Backend Dev",
+      "system_prompt": "STUB: Build repo structure, contracts, APIs, DB from the dev-tagged tasks.",
+      "model": {"provider": "mock", "model": "mock-dev", "temperature": 0.2},
+      "inputs": ["task_writer", "architect"],
+      "tools": ["filesystem"]
+    },
+    {
+      "id": "devops",
+      "role": "DevOps",
+      "system_prompt": "STUB: Prepare deployment/infra scaffolding on top of backend output.",
+      "model": {"provider": "mock", "model": "mock-devops", "temperature": 0.2},
+      "inputs": ["dev", "task_writer"],
+      "tools": ["filesystem"]
+    },
+    {
+      "id": "frontend",
+      "role": "Frontend/Design",
+      "system_prompt": "STUB: Build the single-page frontend against backend contracts and its own tasks.",
+      "model": {"provider": "mock", "model": "mock-fe", "temperature": 0.3},
+      "inputs": ["dev", "architect", "task_writer"],
+      "tools": ["filesystem"]
+    },
+    {
+      "id": "combiner",
+      "role": "Combiner",
+      "system_prompt": "STUB: Integrate dev+devops+frontend into one coherent project; resolve seams; zip.",
+      "model": {"provider": "mock", "model": "mock-combine", "temperature": 0.2},
+      "inputs": ["dev", "devops", "frontend", "integ_reviewer"],
+      "tools": ["filesystem"]
+    },
+    {
+      "id": "integ_reviewer",
+      "role": "Integration Reviewer",
+      "system_prompt": "STUB: Verify integration correctness; return feedback.",
+      "model": {"provider": "mock", "model": "mock-ir", "temperature": 0.2},
+      "inputs": ["combiner"]
+    },
+    {
+      "id": "qa_tests",
+      "role": "QA (test authoring)",
+      "system_prompt": "STUB: From architecture + codebase, author integration and main-workflow test scripts only.",
+      "model": {"provider": "mock", "model": "mock-qa", "temperature": 0.2},
+      "inputs": ["combiner", "architect"]
+    },
+    {
+      "id": "architect_fix",
+      "role": "Senior Architect (test & fix)",
+      "system_prompt": "STUB: Run the tests against the codebase, fix failures, repeat until green (or bypass env-limited tests).",
+      "model": {"provider": "mock", "model": "mock-fix", "temperature": 0.2},
+      "inputs": ["combiner", "qa_tests"],
+      "tools": ["terminal"]
+    }
+  ],
+  "layers": [
+    {
+      "id": "L0_intake",
+      "name": "Layer 0 — Intake",
+      "steps": [{"kind": "node", "node": "intake"}],
+      "output_from": "intake"
+    },
+    {
+      "id": "L1_ideation",
+      "name": "Layer 1 — Ideation Loop (Idea → Research → Judge)",
+      "steps": [
+        {"kind": "loop", "iterations": 4, "nodes": ["idea_generator", "researcher", "judge"]},
+        {"kind": "node", "node": "judge_finalize"}
+      ],
+      "output_from": "judge_finalize"
+    },
+    {
+      "id": "L2_architecture",
+      "name": "Layer 2 — Architecture (Architect ↔ Matcher)",
+      "steps": [{"kind": "loop", "iterations": 2, "nodes": ["architect", "matcher"]}],
+      "output_from": "architect"
+    },
+    {
+      "id": "L3_tasks",
+      "name": "Layer 3 — Work Package (Task Writer ↔ Reviewer)",
+      "steps": [{"kind": "loop", "iterations": 2, "nodes": ["task_writer", "wp_reviewer"]}],
+      "output_from": "task_writer"
+    },
+    {
+      "id": "L4_impl",
+      "name": "Layer 4 — Implementation (dev → devops → frontend)",
+      "steps": [
+        {"kind": "node", "node": "dev"},
+        {"kind": "node", "node": "devops"},
+        {"kind": "node", "node": "frontend"}
+      ],
+      "output_from": "frontend"
+    },
+    {
+      "id": "L5_combine",
+      "name": "Layer 5 — Integration (Combiner ↔ Reviewer)",
+      "steps": [{"kind": "loop", "iterations": 2, "nodes": ["combiner", "integ_reviewer"]}],
+      "output_from": "combiner"
+    },
+    {
+      "id": "L6_qa",
+      "name": "Layer 6 — QA (author tests → architect runs/fixes)",
+      "steps": [
+        {"kind": "node", "node": "qa_tests"},
+        {"kind": "loop", "iterations": 2, "nodes": ["architect_fix"]}
+      ],
+      "output_from": "architect_fix"
+    }
+  ]
+}

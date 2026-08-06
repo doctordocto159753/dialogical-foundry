@@ -1,0 +1,14 @@
+services:
+  foundry:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      FOUNDRY_DATA_DIR: /app/data
+      FOUNDRY_HOST: 0.0.0.0
+    volumes:
+      - foundry-data:/app/data
+    restart: unless-stopped
+
+volumes:
+  foundry-data:

@@ -1,0 +1,1 @@
+{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","required":["assessment_summary","issues","research_quality_notes","keep_these_strengths","verdict"],"properties":{"assessment_summary":{"type":"string"},"issues":{"type":"array"},"research_quality_notes":{"type":"string"},"keep_these_strengths":{"type":"array"},"verdict":{"type":"string"}}}
