@@ -9,7 +9,7 @@ from abc import ABC, abstractmethod
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 import httpx
 from dotenv import load_dotenv
@@ -69,6 +69,47 @@ def _client_options(
     if base_url:
         options["base_url"] = base_url
     return options
+
+
+def _normalize_openai_base_url(base_url: str | None) -> str | None:
+    """Turn a pasted OpenAI endpoint URL into the API root expected by the SDK."""
+    if not base_url:
+        return None
+    normalized = base_url.rstrip("/")
+    for endpoint_suffix in ("/chat/completions", "/responses"):
+        if normalized.lower().endswith(endpoint_suffix):
+            normalized = normalized[: -len(endpoint_suffix)].rstrip("/")
+            break
+    return normalized
+
+
+def _openai_base_url(explicit_base_url: str | None) -> str | None:
+    return _normalize_openai_base_url(
+        _resolve_base_url(explicit_base_url, "OPENAI_BASE_URL")
+    )
+
+
+def _is_official_openai_base_url(base_url: str | None) -> bool:
+    if base_url is None:
+        return True
+    return (urlsplit(base_url).hostname or "").lower() == "api.openai.com"
+
+
+def _openai_compat_user_agent() -> str:
+    value = os.environ.get("FOUNDRY_OPENAI_COMPAT_USER_AGENT", "curl/8.0").strip()
+    if not value or "\r" in value or "\n" in value:
+        raise RuntimeError(
+            "FOUNDRY_OPENAI_COMPAT_USER_AGENT must be a non-empty single-line value"
+        )
+    return value
+
+
+def _openai_reasoning_chat_parameters(model: str, base_url: str | None) -> bool:
+    """Official reasoning-family Chat Completions use a reduced parameter set."""
+    if not _is_official_openai_base_url(base_url):
+        return False
+    normalized_model = model.lower()
+    return normalized_model.startswith(("gpt-5", "o1", "o3", "o4"))
 
 
 def _research_prompt(request: CompletionRequest) -> str:
@@ -387,26 +428,39 @@ class OpenAIProvider(LLMProvider):
             raise RuntimeError("OpenAI API key is not configured")
         from openai import OpenAI
 
-        return OpenAI(
-            api_key=self.api_key,
-            **_client_options(
-                "OPENAI_BASE_URL",
-                request.model.base_url,
-                request.model.research_timeout_seconds
-                if request.model.mode == "deep_research"
-                else None,
-            ),
+        base_url = _openai_base_url(request.model.base_url)
+        options = _client_options(
+            "",
+            base_url,
+            request.model.research_timeout_seconds
+            if request.model.mode == "deep_research"
+            else None,
         )
+        if not _is_official_openai_base_url(base_url):
+            options["default_headers"] = {
+                "User-Agent": _openai_compat_user_agent()
+            }
+        return OpenAI(api_key=self.api_key, **options)
 
     def _complete_standard(self, request: CompletionRequest) -> CompletionResult:
-        response = self._client(request).chat.completions.create(
-            model=request.model.model,
-            messages=[{"role": "system", "content": request.system}, *request.messages],
-            temperature=request.model.temperature,
-            top_p=request.model.top_p if request.model.top_p is not None else 1,
-            max_tokens=request.model.max_tokens,
-            response_format={"type": "json_object"},
-        )
+        base_url = _openai_base_url(request.model.base_url)
+        kwargs: dict[str, Any] = {
+            "model": request.model.model,
+            "messages": [
+                {"role": "system", "content": request.system},
+                *request.messages,
+            ],
+            "response_format": {"type": "json_object"},
+        }
+        if _openai_reasoning_chat_parameters(request.model.model, base_url):
+            kwargs["max_completion_tokens"] = request.model.max_tokens
+        else:
+            kwargs.update(
+                temperature=request.model.temperature,
+                top_p=request.model.top_p if request.model.top_p is not None else 1,
+                max_tokens=request.model.max_tokens,
+            )
+        response = self._client(request).chat.completions.create(**kwargs)
         text = response.choices[0].message.content or "{}"
         usage = response.usage
         return CompletionResult(
@@ -416,7 +470,7 @@ class OpenAIProvider(LLMProvider):
         )
 
     def _complete_deep_research(self, request: CompletionRequest) -> CompletionResult:
-        base_url = _resolve_base_url(request.model.base_url, "OPENAI_BASE_URL")
+        base_url = _openai_base_url(request.model.base_url)
         operation = _matching_operation(request, "openai", base_url)
         client = self._client(request)
         deadline = _research_deadline(request)

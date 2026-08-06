@@ -9,6 +9,7 @@
 | `FOUNDRY_PORT` | `8000` | Uvicorn port |
 | `FOUNDRY_MASTER_KEY` | generated local file | Optional Fernet key override |
 | `FOUNDRY_LLM_TIMEOUT_SECONDS` | `1800` | OpenAI/Anthropic/Gemini read, write, and pool timeout per request attempt |
+| `FOUNDRY_OPENAI_COMPAT_USER_AGENT` | `curl/8.0` | User-Agent for non-official OpenAI-compatible gateways; useful when a gateway WAF blocks the SDK default |
 | `OPENAI_BASE_URL` | `https://api.openai.com/v1` | Optional OpenAI or OpenAI-compatible endpoint |
 | `ANTHROPIC_BASE_URL` | `https://api.anthropic.com` | Optional Anthropic-compatible endpoint |
 | `GEMINI_BASE_URL` | `https://generativelanguage.googleapis.com/v1beta` | Optional Gemini API or compatible endpoint root |
@@ -34,7 +35,7 @@ Base URL precedence is:
 2. the provider environment variable;
 3. the provider's official default.
 
-The UI and API reject embedded credentials, query strings, and fragments in Base URLs. Local HTTP gateways remain valid. Store credentials in the key cabinet, not in a URL.
+The UI and API reject embedded credentials, query strings, and fragments in Base URLs. Local HTTP gateways remain valid. Store credentials in the key cabinet, not in a URL. OpenAI Base URLs should normally end at the API root, such as `https://api.openai.com/v1`. For recovery from a common configuration mistake, a trailing `/chat/completions` or `/responses` is removed before constructing the SDK client, so the SDK does not append the endpoint twice.
 
 Providers:
 
@@ -48,6 +49,8 @@ Configure model names supported by your provider account. Foundry does not alias
 
 OpenAI-compatible gateways must support Chat Completions and JSON-object response
 format; their Deep Research mode must additionally support the Responses API and background retrieval. Anthropic gateways must implement the Messages API and its server-side web-search tool for Deep Research. Gemini-compatible endpoints must implement GenerateContent and, for Deep Research, the Interactions API.
+
+For official OpenAI Chat Completions, `gpt-5*`, `o1*`, `o3*`, and `o4*` model IDs use `max_completion_tokens` and omit `temperature`/`top_p`, matching the restricted reasoning-model parameter surface. Other official models and OpenAI-compatible gateways retain `max_tokens`, `temperature`, and `top_p`. Non-official gateways receive `FOUNDRY_OPENAI_COMPAT_USER_AGENT`; override it only when the gateway requires a different single-line User-Agent.
 
 ## Researcher execution modes
 

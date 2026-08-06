@@ -8,6 +8,7 @@ services:
       FOUNDRY_HOST: 0.0.0.0
       FOUNDRY_LLM_TIMEOUT_SECONDS: ${FOUNDRY_LLM_TIMEOUT_SECONDS:-1800}
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      FOUNDRY_OPENAI_COMPAT_USER_AGENT: ${FOUNDRY_OPENAI_COMPAT_USER_AGENT:-curl/8.0}
       ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-https://api.anthropic.com}
       GEMINI_BASE_URL: ${GEMINI_BASE_URL:-https://generativelanguage.googleapis.com/v1beta}
     volumes:

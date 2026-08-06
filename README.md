@@ -100,12 +100,15 @@ with provider environment variables in the root `.env`:
 ```dotenv
 FOUNDRY_LLM_TIMEOUT_SECONDS=1800
 OPENAI_BASE_URL=http://127.0.0.1:11434/v1
+FOUNDRY_OPENAI_COMPAT_USER_AGENT=curl/8.0
 # ANTHROPIC_BASE_URL=https://anthropic-gateway.example.com
 # GEMINI_BASE_URL=https://generativelanguage.googleapis.com/v1beta
 ```
 
 For a gateway running on the host while Foundry runs in Docker, replace
 `127.0.0.1` with `host.docker.internal`. See [configuration and providers](docs/CONFIGURATION.md).
+
+Use an API root for OpenAI-compatible Base URLs, not a final operation path. Foundry also safely normalizes accidentally pasted trailing `/chat/completions` or `/responses` paths. Official OpenAI reasoning-family Chat Completions automatically use `max_completion_tokens` and omit unsupported sampling fields; compatible gateways retain the conventional `max_tokens` request and receive the configurable compatibility User-Agent.
 
 ### Deep Research
 
