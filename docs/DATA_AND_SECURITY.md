@@ -18,6 +18,8 @@ Secrets enter through a write-only API, are encrypted before SQLite storage, and
 
 Deep Research checkpoints contain the remote operation ID and the provider's raw research report after completion, but never the API key. Treat `data/runs/<id>/state.json` as user content: it can include submitted context, cited source text, and model output. Per-node Base URLs are also persisted in SQLite and run snapshots; credentials in URLs are rejected.
 
+Deleting a run from the UI is irreversible. The API refuses deletion while that run is active, then removes its SQLite row (with cascaded events) and its direct `runs/<id>` directory containing inputs, checkpoints, raw reports, and outputs. It does not delete provider-side background jobs or any saved key.
+
 Fernet protects secrets if the database alone is copied; it does not protect against an attacker who can read both the database and local master-key file. Use filesystem encryption and normal OS account controls for stronger protection.
 
 ## Untrusted inputs

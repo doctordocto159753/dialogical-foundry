@@ -140,6 +140,17 @@ def resume_run(run_id: str, request: Request) -> dict[str, str]:
     return {"id": run_id, "status": "pending"}
 
 
+@app.delete("/api/runs/{run_id}", status_code=204)
+def delete_run(run_id: str, request: Request) -> None:
+    _, _, manager = services(request)
+    try:
+        manager.delete(run_id)
+    except KeyError:
+        raise HTTPException(404, "run not found") from None
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+
 @app.get("/api/runs/{run_id}/events")
 async def run_events(run_id: str, request: Request):
     db, _, _ = services(request)

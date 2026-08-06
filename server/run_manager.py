@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -56,10 +57,27 @@ class RunManager:
 
     def start(self, run_id: str, resume: bool) -> None:
         with self._lock:
+            if not self.db.get_run(run_id):
+                raise KeyError(run_id)
             if run_id in self._active:
                 raise ValueError("run is already active")
             self._active.add(run_id)
         self.pool.submit(self._execute, run_id, resume)
+
+    def delete(self, run_id: str) -> None:
+        with self._lock:
+            if run_id in self._active:
+                raise ValueError("active runs cannot be deleted")
+            if not self.db.get_run(run_id):
+                raise KeyError(run_id)
+            runs_root = self.settings.runs_dir.resolve()
+            run_dir = (runs_root / run_id).resolve()
+            if run_dir.parent != runs_root:
+                raise ValueError("invalid run directory")
+            if run_dir.exists():
+                shutil.rmtree(run_dir)
+            if not self.db.delete_run(run_id):
+                raise KeyError(run_id)
 
     def _event(self, run_id: str, event_type: str, payload: dict[str, Any]) -> None:
         self.db.append_event(run_id, event_type, payload)

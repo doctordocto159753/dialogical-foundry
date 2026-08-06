@@ -4,6 +4,7 @@ from dataclasses import replace
 from fastapi.testclient import TestClient
 
 import server.main as main_module
+from server.database import Database
 from server.ingest import is_text_path
 from server.settings import settings as base_settings
 
@@ -40,6 +41,48 @@ def test_mock_run_api_and_event_replay(tmp_path, monkeypatch):
         assert "event: tokens.updated" in replay
         assert "event: run.completed" in replay
         assert http.get(f"/api/runs/{run_id}/outputs/../../state?format=json").status_code == 404
+        run_dir = tmp_path / "runs" / run_id
+        assert run_dir.is_dir()
+        assert http.delete(f"/api/runs/{run_id}").status_code == 204
+        assert http.get(f"/api/runs/{run_id}").status_code == 404
+        assert not run_dir.exists()
+        with http.app.state.db.connect() as db:
+            assert db.execute(
+                "SELECT COUNT(*) FROM run_events WHERE run_id=?", (run_id,)
+            ).fetchone()[0] == 0
+
+
+def test_active_run_cannot_be_deleted(tmp_path, monkeypatch):
+    with client(tmp_path, monkeypatch) as http:
+        run_id = "a" * 32
+        http.app.state.db.create_run(run_id, "active", [], "json", {})
+        manager = http.app.state.manager
+        with manager._lock:
+            manager._active.add(run_id)
+        try:
+            response = http.delete(f"/api/runs/{run_id}")
+            assert response.status_code == 409
+            assert response.json()["detail"] == "active runs cannot be deleted"
+            assert http.get(f"/api/runs/{run_id}").status_code == 200
+        finally:
+            with manager._lock:
+                manager._active.discard(run_id)
+        assert http.delete(f"/api/runs/{run_id}").status_code == 204
+
+
+def test_restart_interrupts_pending_and_running_runs(tmp_path):
+    db = Database(tmp_path / "foundry.sqlite3")
+    db.initialize()
+    for run_id, status in (("pending", "pending"), ("running", "running"), ("done", "completed")):
+        db.create_run(run_id, run_id, [], "json", {})
+        db.update_run(run_id, status=status)
+
+    interrupted = db.interrupt_orphans()
+
+    assert set(interrupted) == {"pending", "running"}
+    assert db.get_run("pending")["status"] == "interrupted"
+    assert db.get_run("running")["status"] == "interrupted"
+    assert db.get_run("done")["status"] == "completed"
 
 
 def test_settings_and_write_only_keys(tmp_path, monkeypatch):

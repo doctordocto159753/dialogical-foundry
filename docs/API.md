@@ -8,6 +8,7 @@ Interactive OpenAPI documentation is available at `/api/docs` while the app is r
 - `GET /api/runs` — recent runs with output manifests.
 - `GET /api/runs/{id}` — persisted status, tokens, completed layers, error, and outputs.
 - `POST /api/runs/{id}/resume` — resume a non-completed run with a checkpoint.
+- `DELETE /api/runs/{id}` — permanently delete an inactive run, its events, inputs, checkpoints, and outputs. Returns `409` while the in-process run is active.
 - `GET /api/runs/{id}/events` — SSE. Use `Last-Event-ID` or `?after=<seq>` to replay later events.
 - `GET /api/runs/{id}/outputs` — ready output manifest.
 - `GET /api/runs/{id}/outputs/{layer}?format=json|md` — safe, allowlisted download.
@@ -28,7 +29,7 @@ Event envelope:
 }
 ```
 
-Event types are `run.started`, `layer.started`, `node.started`, `node.research.started`, `node.research.poll`, `node.research.completed`, `node.retry`, `node.completed`, `tokens.updated`, `layer.completed`, `run.failed`, and `run.completed`.
+Event types are `run.started`, `run.interrupted`, `layer.started`, `node.started`, `node.research.started`, `node.research.poll`, `node.research.completed`, `node.retry`, `node.completed`, `tokens.updated`, `layer.completed`, `run.failed`, and `run.completed`.
 
 ## Configuration
 

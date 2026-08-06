@@ -92,6 +92,7 @@ export interface SavedKey {
 
 export const RUN_EVENT_TYPES = [
   "run.started",
+  "run.interrupted",
   "layer.started",
   "node.started",
   "node.research.started",
@@ -188,6 +189,7 @@ export const api = {
   runs: () => request<FoundryRun[]>("/api/runs"),
   run: (id: string) => request<FoundryRun>(`/api/runs/${encodeURIComponent(id)}`),
   resumeRun: (id: string) => request<{ id: string; status: "pending" }>(`/api/runs/${encodeURIComponent(id)}/resume`, { method: "POST" }),
+  deleteRun: (id: string) => request<void>(`/api/runs/${encodeURIComponent(id)}`, { method: "DELETE" }),
   outputText: async (url: string) => {
     const response = await fetch(url);
     if (!response.ok) throw new ApiError(`Output could not be loaded (${response.status})`, response.status);

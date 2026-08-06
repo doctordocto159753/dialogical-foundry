@@ -89,4 +89,5 @@ Real calls may incur provider charges. Foundry surfaces returned usage counts bu
 - [ ] Settings persist per-node provider/model/key/Base URL/sampling/tools and Researcher mode.
 - [ ] Saved secrets cannot be read back from the UI or API.
 - [ ] A stopped run can be resumed from its checkpoint.
+- [ ] A terminal run can be deleted from its detail page or the Run archive after confirmation; active runs are protected.
 - [ ] The same flow works from the Docker image.

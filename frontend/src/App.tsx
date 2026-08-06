@@ -64,6 +64,12 @@ export default function App() {
     navigate("run");
   };
 
+  const clearRun = () => {
+    localStorage.removeItem(RUN_STORAGE_KEY);
+    setRunId(null);
+    navigate("run");
+  };
+
   return (
     <div className="app-shell">
       <header className="topbar">
@@ -95,7 +101,7 @@ export default function App() {
 
       <main id="main-content">
         {view === "intake" ? <IntakeView onRunCreated={selectRun} /> : null}
-        {view === "run" ? <RunView runId={runId} onSelectRun={selectRun} onNewRun={() => navigate("intake")} /> : null}
+        {view === "run" ? <RunView runId={runId} onSelectRun={selectRun} onRunDeleted={clearRun} onNewRun={() => navigate("intake")} /> : null}
         {view === "settings" ? <SettingsView /> : null}
       </main>
 
