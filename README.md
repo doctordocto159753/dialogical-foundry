@@ -52,7 +52,7 @@ uv run foundry
 
 Open <http://127.0.0.1:8000>. Select the default `mock` configuration and run the walkthrough without any API key.
 
-Data is written to `./data` by default. Set `FOUNDRY_DATA_DIR` before launch to use another location.
+Data is written to `./data` by default. Set `FOUNDRY_DATA_DIR` before launch to use another location. Native runs load the root `.env` without overriding existing process variables.
 
 ## Development mode
 
@@ -91,6 +91,19 @@ Open <http://127.0.0.1:8000>. The named `foundry-data` volume persists the datab
 4. Start a new run. Configuration is resolved when the run begins.
 
 The default is deliberately mock-first. Anthropic supports `top_k`; OpenAI does not, so the Idea Generator automatically switches to its prompt-level creativity fallback while retaining supported entropy parameters.
+
+OpenAI and Anthropic calls use a 30-minute response timeout per attempt by default.
+Override it with `FOUNDRY_LLM_TIMEOUT_SECONDS`. Custom gateways can be selected
+with `OPENAI_BASE_URL` or `ANTHROPIC_BASE_URL` in the root `.env`:
+
+```dotenv
+FOUNDRY_LLM_TIMEOUT_SECONDS=1800
+OPENAI_BASE_URL=http://127.0.0.1:11434/v1
+# ANTHROPIC_BASE_URL=https://anthropic-gateway.example.com
+```
+
+For a gateway running on the host while Foundry runs in Docker, replace
+`127.0.0.1` with `host.docker.internal`. See [configuration and providers](docs/CONFIGURATION.md).
 
 ## Outputs and recovery
 

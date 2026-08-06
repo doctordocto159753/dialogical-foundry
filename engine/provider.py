@@ -2,10 +2,43 @@
 from __future__ import annotations
 
 import json
+import math
+import os
 from abc import ABC, abstractmethod
+from pathlib import Path
 from typing import Any
 
+import httpx
+from dotenv import load_dotenv
+
 from .contracts import CompletionRequest, CompletionResult
+
+DEFAULT_LLM_TIMEOUT_SECONDS = 30 * 60
+
+# A root .env is convenient for native runs. Existing process variables always
+# win, and Docker Compose passes the same values into the container explicitly.
+load_dotenv(Path.cwd() / ".env", override=False)
+load_dotenv(Path(__file__).resolve().parents[1] / ".env", override=False)
+
+
+def _client_options(base_url_env: str) -> dict[str, Any]:
+    raw_timeout = os.environ.get(
+        "FOUNDRY_LLM_TIMEOUT_SECONDS", str(DEFAULT_LLM_TIMEOUT_SECONDS)
+    )
+    try:
+        timeout_seconds = float(raw_timeout)
+    except ValueError as exc:
+        raise RuntimeError("FOUNDRY_LLM_TIMEOUT_SECONDS must be a positive number") from exc
+    if not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
+        raise RuntimeError("FOUNDRY_LLM_TIMEOUT_SECONDS must be a positive number")
+
+    options: dict[str, Any] = {
+        "timeout": httpx.Timeout(timeout_seconds, connect=min(30.0, timeout_seconds))
+    }
+    base_url = os.environ.get(base_url_env, "").strip()
+    if base_url:
+        options["base_url"] = base_url
+    return options
 
 
 def _est_tokens(text: str) -> int:
@@ -58,7 +91,9 @@ class AnthropicProvider(LLMProvider):
             raise RuntimeError("Anthropic API key is not configured")
         import anthropic
 
-        client = anthropic.Anthropic(api_key=self.api_key)
+        client = anthropic.Anthropic(
+            api_key=self.api_key, **_client_options("ANTHROPIC_BASE_URL")
+        )
         kwargs: dict[str, Any] = {"model": request.model.model, "max_tokens": request.model.max_tokens, "temperature": request.model.temperature, "system": request.system, "messages": request.messages}
         if request.model.top_k is not None:
             kwargs["top_k"] = request.model.top_k
@@ -77,7 +112,9 @@ class OpenAIProvider(LLMProvider):
             raise RuntimeError("OpenAI API key is not configured")
         from openai import OpenAI
 
-        response = OpenAI(api_key=self.api_key).chat.completions.create(model=request.model.model, messages=[{"role": "system", "content": request.system}, *request.messages], temperature=request.model.temperature, top_p=request.model.top_p or 1, max_tokens=request.model.max_tokens, response_format={"type": "json_object"})
+        response = OpenAI(
+            api_key=self.api_key, **_client_options("OPENAI_BASE_URL")
+        ).chat.completions.create(model=request.model.model, messages=[{"role": "system", "content": request.system}, *request.messages], temperature=request.model.temperature, top_p=request.model.top_p or 1, max_tokens=request.model.max_tokens, response_format={"type": "json_object"})
         text = response.choices[0].message.content or "{}"
         usage = response.usage
         return CompletionResult(text=text, usage={"input_tokens": usage.prompt_tokens if usage else 0, "output_tokens": usage.completion_tokens if usage else 0})

@@ -8,8 +8,20 @@
 | `FOUNDRY_HOST` | `127.0.0.1` | Uvicorn bind host |
 | `FOUNDRY_PORT` | `8000` | Uvicorn port |
 | `FOUNDRY_MASTER_KEY` | generated local file | Optional Fernet key override |
+| `FOUNDRY_LLM_TIMEOUT_SECONDS` | `1800` | OpenAI/Anthropic read, write, and pool timeout per request attempt |
+| `OPENAI_BASE_URL` | `https://api.openai.com/v1` | Optional OpenAI or OpenAI-compatible endpoint |
+| `ANTHROPIC_BASE_URL` | `https://api.anthropic.com` | Optional Anthropic-compatible endpoint |
 
-Application settings should normally be managed in the UI.
+The app loads a root `.env` for native runs without overriding variables already
+set by the process. Docker Compose interpolates the same variables into the
+container. When a provider runs on the Windows host and Foundry runs in Docker,
+use `host.docker.internal` instead of `127.0.0.1` in its base URL.
+
+The 30-minute model timeout applies to each OpenAI or Anthropic request attempt.
+Connection establishment remains capped at 30 seconds. Tavily and GitHub intake
+retain their separate 20-second network limits.
+
+Other application settings should normally be managed in the UI.
 
 ## Node fields
 
@@ -23,6 +35,10 @@ Providers:
 - `openai` — OpenAI Chat Completions JSON-object mode and returned usage metadata.
 
 Configure model names supported by your provider account. Paid-provider availability and names can change independently of Foundry.
+
+OpenAI-compatible gateways must support Chat Completions and JSON-object response
+format. Anthropic gateways must implement the Messages API. Base URLs are global
+per provider process; node-level model and key selection remains independent.
 
 ## Search
 

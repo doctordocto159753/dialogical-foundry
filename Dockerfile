@@ -10,7 +10,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     FOUNDRY_DATA_DIR=/app/data \
     FOUNDRY_HOST=0.0.0.0 \
-    FOUNDRY_PORT=8000
+    FOUNDRY_PORT=8000 \
+    FOUNDRY_LLM_TIMEOUT_SECONDS=1800
 WORKDIR /app
 RUN groupadd --system foundry && useradd --system --gid foundry --home /app foundry
 COPY pyproject.toml README.md ./
