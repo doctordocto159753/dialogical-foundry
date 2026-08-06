@@ -33,7 +33,7 @@ def test_structured_outputs_and_iteration_history(tmp_path):
     assert len(executor.artifact_history["task_writer"]) == 2
     assert executor.sessions == {}
     assert executor.token_box()["total"] > 0
-    assert [path.name for path in executor.outputs_dir.glob("*.json")] == [
+    assert sorted(path.name for path in executor.outputs_dir.glob("*.json")) == [
         "L0_intake.json", "L1_ideation.json", "L2_architecture.json", "L3_workpackage.json"
     ]
     work_package = json.loads((executor.outputs_dir / "L3_workpackage.json").read_text(encoding="utf-8"))
