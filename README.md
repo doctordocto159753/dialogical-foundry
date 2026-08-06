@@ -16,6 +16,7 @@ The v1 boundary is deliberate: Foundry plans the target product; it does **not**
 - Mock or Tavily web research for the Researcher node.
 - Structured JSON validation and retry; deterministic JSON and Markdown outputs.
 - Exact, atomic checkpoints with persisted sessions, iteration history, token totals, and resume cursor.
+- Confirmed deletion of inactive runs from the archive or run detail view, including persisted events and files.
 - FastAPI REST API, replayable SSE progress, SQLite metadata/config, and filesystem outputs.
 - Encrypted local keystore whose secret values are write-only through the API.
 - Responsive React SPA with Intake, Run, and Settings views.
@@ -138,6 +139,8 @@ data/runs/<run-id>/
 ```
 
 `state.json` is replaced atomically after every validated node and immediately after a provider creates a background research job. It records the next action cursor, sessions, append-only artifacts, tokens, retry history, completed layers, and any pending remote job ID, but never secret values. If the process exits during a run, startup marks it interrupted and the Run view offers Resume. Completed actions and checkpointed remote job creation are not repeated.
+
+To remove an old run, open **Run archive** or the run detail page and choose **Delete**. Foundry asks for confirmation, refuses deletion while the run is active, and then permanently removes the run record, event history, inputs, checkpoints, raw reports, and outputs. Saved provider keys are not affected.
 
 ## CLI engine
 
