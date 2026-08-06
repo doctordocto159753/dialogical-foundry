@@ -59,6 +59,59 @@ def test_settings_and_write_only_keys(tmp_path, monkeypatch):
         assert http.delete(f"/api/keys/{key_id}").status_code == 204
 
 
+def test_gemini_and_deep_research_node_configuration(tmp_path, monkeypatch):
+    with client(tmp_path, monkeypatch) as http:
+        created = http.post(
+            "/api/keys",
+            json={"provider": "gemini", "label": "Gemini", "value": "secret"},
+        )
+        key_id = created.json()["id"]
+        nodes = http.get("/api/settings/nodes").json()
+        researcher = next(node for node in nodes if node["id"] == "researcher")
+        assert researcher["mode"] == "standard"
+        updated = http.put(
+            "/api/settings/nodes/researcher",
+            json={
+                **{key: value for key, value in researcher.items() if key not in {"id", "role"}},
+                "provider": "gemini",
+                "model": "deep-research-preview-04-2026",
+                "mode": "deep_research",
+                "normalization_model": "gemini-2.5-flash",
+                "base_url": "https://generativelanguage.googleapis.com/v1beta",
+                "api_key_ref": key_id,
+                "research_timeout_seconds": 1800,
+            },
+        )
+        assert updated.status_code == 200, updated.text
+        assert updated.json()["model"] == "deep-research-preview-04-2026"
+        assert updated.json()["base_url"].endswith("/v1beta")
+
+        non_researcher = next(node for node in nodes if node["id"] != "researcher")
+        rejected = http.put(
+            f"/api/settings/nodes/{non_researcher['id']}",
+            json={
+                "provider": "gemini",
+                "model": "deep-research-preview-04-2026",
+                "mode": "deep_research",
+                "normalization_model": "gemini-2.5-flash",
+            },
+        )
+        assert rejected.status_code == 422
+
+
+def test_node_base_url_rejects_embedded_credentials(tmp_path, monkeypatch):
+    with client(tmp_path, monkeypatch) as http:
+        response = http.put(
+            "/api/settings/nodes/intake",
+            json={
+                "provider": "openai",
+                "model": "gpt-exact",
+                "base_url": "https://secret@example.com/v1",
+            },
+        )
+        assert response.status_code == 422
+
+
 def test_intake_limits(tmp_path, monkeypatch):
     with client(tmp_path, monkeypatch) as http:
         response = http.post("/api/runs", data={"brief": "word " * 2001})

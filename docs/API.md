@@ -28,13 +28,13 @@ Event envelope:
 }
 ```
 
-Event types are `run.started`, `layer.started`, `node.started`, `node.retry`, `node.completed`, `tokens.updated`, `layer.completed`, `run.failed`, and `run.completed`.
+Event types are `run.started`, `layer.started`, `node.started`, `node.research.started`, `node.research.poll`, `node.research.completed`, `node.retry`, `node.completed`, `tokens.updated`, `layer.completed`, `run.failed`, and `run.completed`.
 
 ## Configuration
 
 - `GET/PUT /api/settings` — format/loop defaults and search provider/key reference.
 - `GET /api/settings/nodes` — merged pipeline defaults and stored node overrides.
-- `PUT /api/settings/nodes/{node_id}` — provider, model, `api_key_ref`, sampling, max tokens, and tools.
+- `PUT /api/settings/nodes/{node_id}` — provider, exact model ID, `api_key_ref`, per-node Base URL, sampling, max tokens, tools, execution mode, and Deep Research controls. `deep_research` is accepted only for `researcher` with Anthropic, OpenAI, or Gemini and a non-empty normalization model ID.
 
 ## Keys
 

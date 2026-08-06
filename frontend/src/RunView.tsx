@@ -232,7 +232,7 @@ function StreamIndicator({ state, terminal }: { state: "connecting" | "live" | "
 }
 
 function ActivityLog({ events }: { events: RunEventEnvelope[] }) {
-  const activity = events.filter((event) => ["node.started", "node.retry", "node.completed", "layer.completed", "run.completed", "run.failed"].includes(event.type)).slice(-10).reverse();
+  const activity = events.filter((event) => ["node.started", "node.research.started", "node.research.poll", "node.research.completed", "node.retry", "node.completed", "layer.completed", "run.completed", "run.failed"].includes(event.type)).slice(-10).reverse();
   return (
     <div className="activity-log" aria-live="polite">
       <div className="activity-heading"><h3>Activity</h3><span>{events.length ? `#${events[events.length - 1].seq}` : "waiting"}</span></div>
@@ -287,13 +287,17 @@ function humanize(value: string): string {
 
 function eventIcon(type: string): string {
   if (type === "node.retry" || type === "run.failed") return "!";
-  if (type === "node.completed" || type === "layer.completed" || type === "run.completed") return "✓";
+  if (type === "node.completed" || type === "node.research.completed" || type === "layer.completed" || type === "run.completed") return "✓";
+  if (type === "node.research.started" || type === "node.research.poll") return "⌁";
   return "·";
 }
 
 function eventMessage(event: RunEventEnvelope): string {
   const node = humanize(event.payload.node_id ?? event.payload.node ?? "node");
   if (event.type === "node.started") return `${node} started${event.payload.iteration !== null && event.payload.iteration !== undefined ? ` · pass ${event.payload.iteration + 1}` : ""}`;
+  if (event.type === "node.research.started") return `${event.payload.provider ?? "Provider"} research job started`;
+  if (event.type === "node.research.poll") return `${event.payload.provider ?? "Provider"} research · ${event.payload.remote_status ?? "working"}`;
+  if (event.type === "node.research.completed") return `${event.payload.provider ?? "Provider"} research report ready`;
   if (event.type === "node.completed") return `${node} finished${event.payload.ms ? ` · ${event.payload.ms} ms` : ""}`;
   if (event.type === "node.retry") return `${node} retry ${event.payload.attempt ?? ""}`.trim();
   if (event.type === "layer.completed") return `${humanize(event.payload.layer_id ?? "Layer")} stamped`;

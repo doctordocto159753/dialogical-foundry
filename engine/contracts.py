@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -20,6 +21,9 @@ class CompletionRequest:
     model: ModelConfig
     tools: list[str] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
+    operation_state: dict[str, Any] | None = None
+    operation_checkpoint: Callable[[dict[str, Any]], None] | None = None
+    progress: Callable[[str, dict[str, Any]], None] | None = None
 
 
 @dataclass

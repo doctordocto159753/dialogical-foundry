@@ -19,15 +19,21 @@ FastAPI serves the built SPA and API as one local unit. The synchronous, domain-
 - Pipelines remain data: `Pipeline → Layer → Step → Node/Loop`.
 - Every node declares its blackboard inputs. String inputs select the latest value; object inputs can select the complete append-only history.
 - Provider output is parsed as JSON and validated against the node contract before it becomes authoritative.
+- A saved model/agent ID crosses the UI, SQLite snapshot, engine model, and provider adapter without alias substitution.
 - A node result, token update, next cursor, and layer completion become durable together through an atomic state-file replacement.
+- OpenAI/Gemini background research IDs and completed raw reports become durable before polling/normalization continues.
 - Secrets are resolved from references immediately before provider calls and are never serialized.
 - Sessions live through a node's home layer and are cleared after the layer output is written.
 
 ## Run state
 
-`state.json` is versioned and contains the pipeline name, output format, status, next action index, token totals, latest blackboard, full artifact history, full open sessions, call history, completed layers, timestamps, and errors. The temporary state file is flushed and atomically replaced.
+`state.json` is versioned and contains the pipeline name, output format, status, next action index, token totals, latest blackboard, full artifact history, full open sessions, call history, completed layers, timestamps, errors, and an optional pending provider operation. The temporary state file is flushed and atomically replaced. State version 2 reads and upgrades version-1 checkpoints in memory.
 
-On a node failure, in-memory changes from the uncommitted node are rolled back before the failed state is recorded. Resume therefore replays only the incomplete node, never an already checkpointed one.
+On a node failure, in-memory changes from the uncommitted node are rolled back before the failed state is recorded, while an already-created remote research operation remains checkpointed. Resume therefore replays only the incomplete node and polls the same provider job rather than creating it again.
+
+## Deep Research boundary
+
+The Researcher has a standard path and a provider-native Deep Research path. OpenAI and Gemini create background work, checkpoint its ID, poll to a terminal state, checkpoint the raw report, and then call a configured standard model to normalize it. Anthropic performs a synchronous Messages call with server-side web search, checkpoints the raw report, and uses the same normalization boundary. Only the normalized, schema-valid object reaches the blackboard; raw reports and provider metadata remain in artifact history for traceability.
 
 ## Persistence
 

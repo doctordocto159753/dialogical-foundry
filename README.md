@@ -10,7 +10,8 @@ The v1 boundary is deliberate: Foundry plans the target product; it does **not**
 
 - Locked L0-L3 pipeline with configurable 4/2/2 dialogue loops.
 - Mock provider for a complete offline, zero-key demonstration.
-- Anthropic and OpenAI adapters with independent per-node models and key references.
+- Anthropic, OpenAI, and Gemini adapters with independent per-node models, Base URLs, and key references.
+- Provider-native Deep Research for the Researcher node, with durable background-job resume and explicit report normalization.
 - OpenAI/no-`top_k` creativity-prompt fallback.
 - Mock or Tavily web research for the Researcher node.
 - Structured JSON validation and retry; deterministic JSON and Markdown outputs.
@@ -85,25 +86,38 @@ Open <http://127.0.0.1:8000>. The named `foundry-data` volume persists the datab
 
 ## Configure real providers
 
-1. Open **Settings → Local keys** and save an Anthropic, OpenAI, or Tavily key. Saved values are never returned to the browser; only label, provider, and fingerprint are listed.
-2. Expand a node, select its provider/model/key reference, tune sampling, and save it.
+1. Open **Settings → Local keys** and save an Anthropic, OpenAI, Gemini, or Tavily key. Saved values are never returned to the browser; only label, provider, and fingerprint are listed.
+2. Expand a node, select its provider/model/key reference, optionally set its Base URL, tune sampling, and save it. The model ID is sent exactly as entered.
 3. Select Tavily in **Search & defaults**, choose the Tavily key, and save defaults.
 4. Start a new run. Configuration is resolved when the run begins.
 
 The default is deliberately mock-first. Anthropic supports `top_k`; OpenAI does not, so the Idea Generator automatically switches to its prompt-level creativity fallback while retaining supported entropy parameters.
 
-OpenAI and Anthropic calls use a 30-minute response timeout per attempt by default.
+OpenAI, Anthropic, and Gemini calls use a 30-minute response timeout per attempt by default.
 Override it with `FOUNDRY_LLM_TIMEOUT_SECONDS`. Custom gateways can be selected
-with `OPENAI_BASE_URL` or `ANTHROPIC_BASE_URL` in the root `.env`:
+with provider environment variables in the root `.env`:
 
 ```dotenv
 FOUNDRY_LLM_TIMEOUT_SECONDS=1800
 OPENAI_BASE_URL=http://127.0.0.1:11434/v1
 # ANTHROPIC_BASE_URL=https://anthropic-gateway.example.com
+# GEMINI_BASE_URL=https://generativelanguage.googleapis.com/v1beta
 ```
 
 For a gateway running on the host while Foundry runs in Docker, replace
 `127.0.0.1` with `host.docker.internal`. See [configuration and providers](docs/CONFIGURATION.md).
+
+### Deep Research
+
+Only the **Researcher** node exposes `deep_research` mode. Choose one of these real providers, enter the exact research model/agent ID, and enter a separate exact standard-model ID for normalization:
+
+- OpenAI: Responses API in background mode with `web_search_preview`.
+- Gemini: Interactions API with the entered value sent as the `agent` ID.
+- Anthropic: Messages API with the server-side `web_search_20250305` tool.
+
+OpenAI's dedicated research model is not GPT-4.1: GPT-4.1 can be used as the normalizer (or as an optional prompt-refinement model outside this app), while the research request itself needs a Deep Research model ID supported by the account. Gemini Deep Research likewise expects an agent ID, not a standard Gemini model ID.
+
+The research timeout defaults to 1,800 seconds and is independently configurable on the Researcher row. OpenAI and Gemini job IDs are checkpointed before polling, so Resume continues the same remote job instead of creating another billed job. The raw cited report is retained in checkpoint history and normalized into the Researcher JSON contract. Deep Research runs once per ideation pass; the default four passes can therefore create four paid research jobs.
 
 ## Outputs and recovery
 
@@ -120,7 +134,7 @@ data/runs/<run-id>/
   outputs/L3_workpackage.{json,md}
 ```
 
-`state.json` is replaced atomically after every validated node. It records the next action cursor, sessions, append-only artifacts, tokens, retry history, and completed layers, but never secret values. If the process exits during a run, startup marks it interrupted and the Run view offers Resume. Completed actions are not called again.
+`state.json` is replaced atomically after every validated node and immediately after a provider creates a background research job. It records the next action cursor, sessions, append-only artifacts, tokens, retry history, completed layers, and any pending remote job ID, but never secret values. If the process exits during a run, startup marks it interrupted and the Run view offers Resume. Completed actions and checkpointed remote job creation are not repeated.
 
 ## CLI engine
 
@@ -144,7 +158,7 @@ npm.cmd run test
 npm.cmd run build
 ```
 
-The backend suite covers pipeline shape, structured outputs, token accounting, creativity fallback, validation retry, exact resume, run APIs, SSE replay, safe downloads, settings, intake limits, and write-only keys. Real paid-provider calls remain opt-in; automated tests mock or avoid billed APIs.
+The backend suite covers pipeline shape, structured outputs, token accounting, creativity fallback, validation retry, exact local and remote-job resume, exact model/Base URL request routing for all real providers, run APIs, SSE replay, safe downloads, settings, intake limits, and write-only keys. Real paid-provider calls remain opt-in; automated tests use protocol-level fakes and never bill an API.
 
 ## Input and security limits
 

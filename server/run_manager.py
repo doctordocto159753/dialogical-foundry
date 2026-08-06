@@ -7,6 +7,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from engine import Pipeline, PipelineExecutor
+from engine.models import ModelConfig
 from engine.search import MockSearchProvider, TavilySearchProvider
 from engine.state import atomic_write_json
 
@@ -29,7 +30,7 @@ class RunManager:
         for node_id, config in self.db.node_configs().items():
             node = next((item for item in data["nodes"] if item["id"] == node_id), None)
             if node:
-                node["model"].update({key: config[key] for key in ("provider", "model", "api_key_ref", "temperature", "top_k", "top_p", "max_tokens") if key in config})
+                node["model"].update({key: config[key] for key in ModelConfig.__annotations__ if key in config})
                 if "tools" in config:
                     node["tools"] = list(config["tools"])
         return data

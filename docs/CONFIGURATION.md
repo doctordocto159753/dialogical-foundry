@@ -8,16 +8,17 @@
 | `FOUNDRY_HOST` | `127.0.0.1` | Uvicorn bind host |
 | `FOUNDRY_PORT` | `8000` | Uvicorn port |
 | `FOUNDRY_MASTER_KEY` | generated local file | Optional Fernet key override |
-| `FOUNDRY_LLM_TIMEOUT_SECONDS` | `1800` | OpenAI/Anthropic read, write, and pool timeout per request attempt |
+| `FOUNDRY_LLM_TIMEOUT_SECONDS` | `1800` | OpenAI/Anthropic/Gemini read, write, and pool timeout per request attempt |
 | `OPENAI_BASE_URL` | `https://api.openai.com/v1` | Optional OpenAI or OpenAI-compatible endpoint |
 | `ANTHROPIC_BASE_URL` | `https://api.anthropic.com` | Optional Anthropic-compatible endpoint |
+| `GEMINI_BASE_URL` | `https://generativelanguage.googleapis.com/v1beta` | Optional Gemini API or compatible endpoint root |
 
 The app loads a root `.env` for native runs without overriding variables already
 set by the process. Docker Compose interpolates the same variables into the
 container. When a provider runs on the Windows host and Foundry runs in Docker,
 use `host.docker.internal` instead of `127.0.0.1` in its base URL.
 
-The 30-minute model timeout applies to each OpenAI or Anthropic request attempt.
+The 30-minute model timeout applies to each OpenAI, Anthropic, or Gemini request attempt.
 Connection establishment remains capped at 30 seconds. Tavily and GitHub intake
 retain their separate 20-second network limits.
 
@@ -25,7 +26,15 @@ Other application settings should normally be managed in the UI.
 
 ## Node fields
 
-Every node independently resolves `provider`, `model`, `api_key_ref`, `temperature`, `top_k`, `top_p`, `max_tokens`, and `tools`. An override is stored in SQLite; the original pipeline JSON remains the prompt/configuration baseline.
+Every node independently resolves `provider`, `model`, `api_key_ref`, `base_url`, `temperature`, `top_k`, `top_p`, `max_tokens`, and `tools`. An override is stored in SQLite; the original pipeline JSON remains the prompt/configuration baseline.
+
+Base URL precedence is:
+
+1. the non-empty Base URL saved on the node;
+2. the provider environment variable;
+3. the provider's official default.
+
+The UI and API reject embedded credentials, query strings, and fragments in Base URLs. Local HTTP gateways remain valid. Store credentials in the key cabinet, not in a URL.
 
 Providers:
 
@@ -33,12 +42,32 @@ Providers:
 - `mock_notopk` — deterministic no-`top_k` capability probe, no key.
 - `anthropic` — Anthropic Messages API and returned usage metadata.
 - `openai` — OpenAI Chat Completions JSON-object mode and returned usage metadata.
+- `gemini` — Gemini `models.generateContent` with JSON-schema output and returned usage metadata.
 
-Configure model names supported by your provider account. Paid-provider availability and names can change independently of Foundry.
+Configure model names supported by your provider account. Foundry does not alias, upgrade, trim, prefix, or otherwise replace a saved model ID. OpenAI and Anthropic receive it as the request `model`; Gemini standard calls use it as the `{model}` path value; Gemini Deep Research receives it as the request `agent`. Leading/trailing whitespace is rejected rather than silently changed. Paid-provider availability and names can change independently of Foundry.
 
 OpenAI-compatible gateways must support Chat Completions and JSON-object response
-format. Anthropic gateways must implement the Messages API. Base URLs are global
-per provider process; node-level model and key selection remains independent.
+format; their Deep Research mode must additionally support the Responses API and background retrieval. Anthropic gateways must implement the Messages API and its server-side web-search tool for Deep Research. Gemini-compatible endpoints must implement GenerateContent and, for Deep Research, the Interactions API.
+
+## Researcher execution modes
+
+`standard` retains the existing flow: the configured model produces Researcher JSON, optionally using separately configured Tavily search results injected into its context.
+
+`deep_research` is restricted to the Researcher node and requires Anthropic, OpenAI, or Gemini plus a `normalization_model`. The first call produces a provider-native long-form report; a second standard-model call converts that report into the unchanged Researcher JSON schema. Both the research ID/agent ID and normalization model ID are sent exactly as saved.
+
+| Provider | Research request | Provider-specific controls |
+| --- | --- | --- |
+| OpenAI | `POST /responses`, `background=true`, `web_search_preview`; poll `GET /responses/{id}` | `research_max_tool_calls`, timeout, poll interval |
+| Gemini | `POST /interactions` with the model field sent as `agent`; poll `GET /interactions/{id}` | timeout, poll interval, thinking summaries, visualization |
+| Anthropic | Messages API with `web_search_20250305` | `research_max_tool_calls` mapped to web-search `max_uses` |
+
+The default `research_timeout_seconds` is 1,800 seconds. It is an overall polling deadline for OpenAI/Gemini and documents the intended long-call budget for Anthropic. `research_poll_interval_seconds` defaults to 5 seconds. OpenAI/Gemini remote IDs are atomically checkpointed immediately after creation; a resumed run retrieves that job rather than posting a duplicate. A completed raw report is also checkpointed before normalization, so JSON correction retries repeat only normalization.
+
+Deep Research uses the provider's native web access and therefore does not invoke the separate Tavily adapter. It runs on every Researcher action. The default four-pass ideation loop consequently means four provider research jobs; reduce the Ideation pass count if that cost/latency is not intended.
+
+OpenAI GPT-4.1 is not the dedicated Deep Research model. OpenAI documents GPT-4.1 as an optional intermediate clarification/prompt-rewriting model; the actual research call uses a supported Deep Research model ID through Responses. It can still be selected as the normalization model if supported by the account and endpoint.
+
+Provider references: [OpenAI Deep Research](https://developers.openai.com/api/docs/guides/deep-research), [OpenAI background mode](https://developers.openai.com/api/docs/guides/background), [Gemini Deep Research Agent](https://ai.google.dev/gemini-api/docs/deep-research), [Gemini GenerateContent](https://ai.google.dev/api/generate-content), and [Anthropic web search](https://platform.claude.com/docs/en/agents-and-tools/tool-use/web-search-tool).
 
 ## Search
 

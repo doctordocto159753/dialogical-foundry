@@ -69,12 +69,14 @@ Use JSON for a coding agent and Markdown for human review. Both are generated fr
 
 In Settings:
 
-1. Add an Anthropic or OpenAI key.
-2. Assign it to one or more nodes and choose supported models.
+1. Add an Anthropic, OpenAI, or Gemini key.
+2. Assign it to one or more nodes, enter the exact supported model ID, and optionally set a per-node Base URL.
 3. Add a Tavily key and choose Tavily for evidence-backed research.
 4. Save and start a new intake.
 
-Anthropic keeps Idea Generator `top_k`. OpenAI automatically selects the creativity fallback prompt because it has no `top_k` parameter.
+Anthropic and Gemini keep Idea Generator `top_k`. OpenAI automatically selects the creativity fallback prompt because it has no `top_k` parameter.
+
+For provider-native research, expand **Researcher**, choose a real provider, switch **Execution mode** to **Provider Deep Research**, and enter both the exact research model/agent ID and exact standard normalization model ID. Keep the default 1,800-second research timeout unless the provider/account needs a different limit. OpenAI/Gemini background jobs survive local interruption through Resume. Remember that every ideation pass starts a research job; use one pass for an inexpensive first live proof.
 
 Real calls may incur provider charges. Foundry surfaces returned usage counts but does not calculate monetary cost.
 
@@ -84,7 +86,7 @@ Real calls may incur provider charges. Foundry surfaces returned usage counts bu
 - [ ] Progress and token totals update live.
 - [ ] Four layer outputs are previewable and downloadable.
 - [ ] Final work package contains ordered, coded, prioritized, tagged stories.
-- [ ] Settings persist per-node provider/model/key/sampling/tools.
+- [ ] Settings persist per-node provider/model/key/Base URL/sampling/tools and Researcher mode.
 - [ ] Saved secrets cannot be read back from the UI or API.
 - [ ] A stopped run can be resumed from its checkpoint.
 - [ ] The same flow works from the Docker image.

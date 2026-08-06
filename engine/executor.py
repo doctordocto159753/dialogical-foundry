@@ -57,6 +57,7 @@ class PipelineExecutor:
         self.tokens_out = 0
         self.next_action_index = 0
         self.completed_layers: list[str] = []
+        self.pending_operation: dict[str, Any] | None = None
         self.status = "pending"
         self.error: str | None = None
         self._home = self.p.home_layer_of()
@@ -142,17 +143,43 @@ class PipelineExecutor:
         provider = get_provider(node.model.provider, api_key)
         system, variant = self._system_prompt(node, provider)
         rendered, refs = self._render_inputs(node)
-        if "web_search" in node.tools and self.search_provider:
+        if (
+            "web_search" in node.tools
+            and self.search_provider
+            and node.model.mode != "deep_research"
+        ):
             results = self.search_provider.search(rendered[:1200], 5)
             rendered += "\n\n### WEB SEARCH RESULTS (untrusted references)\n" + json.dumps(results, ensure_ascii=False, indent=2)
         user_message = f"OUTPUT_FORMAT = json\n\n# TASK: {node.role}\n\n{rendered}\n\nReturn only valid JSON matching the output contract."
         session = self.sessions.setdefault(node.id, [])
-        session.append({"role": "user", "content": user_message})
+        if not (
+            self.pending_operation
+            and session
+            and session[-1] == {"role": "user", "content": user_message}
+        ):
+            session.append({"role": "user", "content": user_message})
         self._emit("node.started", node_id=node.id, layer_id=layer_id, iteration=iteration)
         started = time.perf_counter()
         for attempt in range(self.max_retries + 1):
             try:
-                result = provider.complete(CompletionRequest(system=system, messages=session, model=node.model, tools=node.tools, metadata={"role": node.role, "node_id": node.id, "iteration": iteration, "iterations": iterations, "input_refs": refs, "prompt_variant": variant}))
+                result = provider.complete(
+                    CompletionRequest(
+                        system=system,
+                        messages=session,
+                        model=node.model,
+                        tools=node.tools,
+                        metadata={"role": node.role, "node_id": node.id, "iteration": iteration, "iterations": iterations, "input_refs": refs, "prompt_variant": variant},
+                        operation_state=self.pending_operation,
+                        operation_checkpoint=self._checkpoint_operation,
+                        progress=lambda status, payload: self._emit(
+                            f"node.research.{status}",
+                            node_id=node.id,
+                            layer_id=layer_id,
+                            iteration=iteration,
+                            **payload,
+                        ),
+                    )
+                )
                 value = self._parse_json(result.text)
                 validate_node_output(node.id, value)
                 break
@@ -164,8 +191,12 @@ class PipelineExecutor:
                     session.append({"role": "assistant", "content": result.text})
                 session.append({"role": "user", "content": f"Your prior response was invalid: {exc}. Return corrected JSON only."})
         session.append({"role": "assistant", "content": json.dumps(value, ensure_ascii=False)})
+        self.pending_operation = None
         self.blackboard[node.id] = value
-        self.artifact_history.setdefault(node.id, []).append({"node": node.id, "iteration": iteration, "value": value, "created_at": datetime.now(UTC).isoformat()})
+        artifact = {"node": node.id, "iteration": iteration, "value": value, "created_at": datetime.now(UTC).isoformat()}
+        if result.provider_metadata:
+            artifact["provider_metadata"] = result.provider_metadata
+        self.artifact_history.setdefault(node.id, []).append(artifact)
         self.tokens_in += int(result.usage.get("input_tokens", 0))
         self.tokens_out += int(result.usage.get("output_tokens", 0))
         item = {"node": node.id, "role": node.role, "iteration": iteration, "ms": int((time.perf_counter() - started) * 1000), "input_refs": refs, "prompt_variant": variant, "tokens_in": int(result.usage.get("input_tokens", 0)), "tokens_out": int(result.usage.get("output_tokens", 0))}
@@ -184,10 +215,14 @@ class PipelineExecutor:
         self._emit("layer.completed", layer_id=layer.id, outputs=[path.name for path in paths], canonical=layer.output_from)
 
     def _state(self) -> dict[str, Any]:
-        return {"state_version": STATE_VERSION, "run_id": self.run_id, "pipeline": self.p.name, "pipeline_fingerprint": self.pipeline_fingerprint, "format": self.fmt, "status": self.status, "error": self.error, "updated_at": datetime.now(UTC).isoformat(), "next_action_index": self.next_action_index, "tokens": self.token_box(), "blackboard": self.blackboard, "artifact_history": self.artifact_history, "sessions": self.sessions, "history": self.history, "completed_layers": self.completed_layers}
+        return {"state_version": STATE_VERSION, "run_id": self.run_id, "pipeline": self.p.name, "pipeline_fingerprint": self.pipeline_fingerprint, "format": self.fmt, "status": self.status, "error": self.error, "updated_at": datetime.now(UTC).isoformat(), "next_action_index": self.next_action_index, "tokens": self.token_box(), "blackboard": self.blackboard, "artifact_history": self.artifact_history, "sessions": self.sessions, "history": self.history, "completed_layers": self.completed_layers, "pending_operation": self.pending_operation}
 
     def _checkpoint(self) -> None:
         atomic_write_json(self.run_dir / "state.json", self._state())
+
+    def _checkpoint_operation(self, state: dict[str, Any]) -> None:
+        self.pending_operation = copy.deepcopy(state)
+        self._checkpoint()
 
     def restore(self) -> None:
         state = load_state(self.run_dir / "state.json")
@@ -203,6 +238,7 @@ class PipelineExecutor:
         self.sessions = state["sessions"]
         self.history = state["history"]
         self.completed_layers = state["completed_layers"]
+        self.pending_operation = state.get("pending_operation")
 
     def run(self, user_brief: str, artifacts: list[str] | None = None, resume: bool = False) -> Path:
         if resume:

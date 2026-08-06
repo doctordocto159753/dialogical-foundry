@@ -6,6 +6,7 @@ import pytest
 import engine.executor as executor_module
 from engine import Pipeline, PipelineExecutor
 from engine.contracts import CompletionRequest, CompletionResult
+from engine.models import Layer, ModelConfig, Node, Step
 from engine.provider import LLMProvider, MockProvider
 from pipelines.build_v1 import PIPELINE
 
@@ -97,3 +98,84 @@ def test_resume_starts_at_exact_checkpoint(monkeypatch, tmp_path):
     assert len(resumed.history) == 22
     assert [item["node"] for item in resumed.history].count("intake") == 1
     assert [item["node"] for item in resumed.history].count("idea_generator") == 4
+
+
+class CheckpointThenCrash(LLMProvider):
+    def complete(self, request: CompletionRequest) -> CompletionResult:
+        request.operation_checkpoint(
+            {
+                "provider": "gemini",
+                "node_id": "researcher",
+                "iteration": None,
+                "model": "deep-agent-exact",
+                "base_url": "https://gemini.example/v1beta",
+                "remote_id": "remote-job-1",
+                "status": "in_progress",
+            }
+        )
+        raise RuntimeError("crash after remote job creation")
+
+
+class ResumePendingResearch(LLMProvider):
+    def __init__(self):
+        super().__init__()
+        self.received_state = None
+
+    def complete(self, request: CompletionRequest) -> CompletionResult:
+        self.received_state = request.operation_state
+        return CompletionResult(
+            text=json.dumps(
+                {"delta_only": False, "findings": [], "overall_notes": "resumed"}
+            ),
+            usage={"input_tokens": 1, "output_tokens": 1},
+        )
+
+
+def test_remote_research_operation_is_checkpointed_and_reused(monkeypatch, tmp_path):
+    research_pipeline = Pipeline(
+        name="resume-remote-research",
+        nodes={
+            "researcher": Node(
+                id="researcher",
+                role="Researcher",
+                system_prompt="research",
+                model=ModelConfig(
+                    provider="gemini",
+                    model="deep-agent-exact",
+                    base_url="https://gemini.example/v1beta",
+                    mode="deep_research",
+                ),
+            )
+        },
+        layers=[
+            Layer(
+                id="research",
+                name="Research",
+                steps=[Step(kind="node", node="researcher")],
+                output_from="researcher",
+            )
+        ],
+    )
+    monkeypatch.setattr(executor_module, "get_provider", lambda *_: CheckpointThenCrash())
+    first = PipelineExecutor(
+        research_pipeline,
+        runs_root=tmp_path,
+        run_id="remote-resume",
+        max_retries=0,
+    )
+    with pytest.raises(RuntimeError, match="crash after remote job creation"):
+        first.run("brief")
+    saved = json.loads((first.run_dir / "state.json").read_text(encoding="utf-8"))
+    assert saved["pending_operation"]["remote_id"] == "remote-job-1"
+
+    resumed_provider = ResumePendingResearch()
+    monkeypatch.setattr(executor_module, "get_provider", lambda *_: resumed_provider)
+    resumed = PipelineExecutor(
+        research_pipeline,
+        runs_root=tmp_path,
+        run_id="remote-resume",
+        max_retries=0,
+    )
+    resumed.run("ignored", resume=True)
+    assert resumed_provider.received_state["remote_id"] == "remote-job-1"
+    assert resumed.pending_operation is None

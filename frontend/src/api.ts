@@ -1,6 +1,7 @@
 export type OutputFormat = "json" | "md" | "both";
 export type RunStatus = "pending" | "running" | "completed" | "failed" | "interrupted";
-export type Provider = "mock" | "mock_notopk" | "anthropic" | "openai";
+export type Provider = "mock" | "mock_notopk" | "anthropic" | "openai" | "gemini";
+export type ModelMode = "standard" | "deep_research";
 export type SearchProvider = "mock" | "tavily";
 
 export interface LoopCounts {
@@ -64,6 +65,14 @@ export interface NodeSettings {
   role: string;
   provider: Provider;
   model: string;
+  base_url?: string | null;
+  mode: ModelMode;
+  normalization_model?: string | null;
+  research_timeout_seconds: number;
+  research_poll_interval_seconds: number;
+  research_max_tool_calls: number;
+  research_thinking_summaries: boolean;
+  research_visualization: boolean;
   api_key_ref?: string | null;
   temperature?: number;
   top_k?: number | null;
@@ -85,6 +94,9 @@ export const RUN_EVENT_TYPES = [
   "run.started",
   "layer.started",
   "node.started",
+  "node.research.started",
+  "node.research.poll",
+  "node.research.completed",
   "node.retry",
   "node.completed",
   "tokens.updated",
@@ -114,6 +126,10 @@ export interface RunEventPayload {
   tokens_in?: number;
   tokens_out?: number;
   resumed?: boolean;
+  provider?: string;
+  remote_id?: string;
+  remote_status?: string;
+  continuation?: number;
 }
 
 export interface RunEventEnvelope {
