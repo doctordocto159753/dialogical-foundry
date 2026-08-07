@@ -62,12 +62,14 @@ For official OpenAI Chat Completions, `gpt-5*`, `o1*`, `o3*`, and `o4*` model ID
 | Provider | Research request | Provider-specific controls |
 | --- | --- | --- |
 | OpenAI | `POST /responses`, `background=true`, `web_search_preview`; poll `GET /responses/{id}` | `research_max_tool_calls`, timeout, poll interval |
-| Gemini | `POST /interactions` with the model field sent as `agent`; poll `GET /interactions/{id}` | timeout, poll interval, thinking summaries, visualization |
+| Gemini | `POST /interactions` with the model field sent as `agent`, `background=true`, and `store=true`; poll `GET /interactions/{id}` | timeout, poll interval, thinking summaries, visualization |
 | Anthropic | Messages API with `web_search_20250305` | `research_max_tool_calls` mapped to web-search `max_uses` |
 
 The default `research_timeout_seconds` is 1,800 seconds. It is an overall polling deadline for OpenAI/Gemini and documents the intended long-call budget for Anthropic. `research_poll_interval_seconds` defaults to 5 seconds. OpenAI/Gemini remote IDs are atomically checkpointed immediately after creation; a resumed run retrieves that job rather than posting a duplicate. A completed raw report is also checkpointed before normalization, so JSON correction retries repeat only normalization.
 
 Deep Research uses the provider's native web access and therefore does not invoke the separate Tavily adapter. It runs on every Researcher action. The default four-pass ideation loop consequently means four provider research jobs; reduce the Ideation pass count if that cost/latency is not intended.
+
+Gemini Deep Research does not accept `system_instruction`. Foundry therefore preserves the complete Researcher instructions by prepending them to the interaction `input`, as required by Gemini's agent contract, rather than dropping them.
 
 OpenAI GPT-4.1 is not the dedicated Deep Research model. OpenAI documents GPT-4.1 as an optional intermediate clarification/prompt-rewriting model; the actual research call uses a supported Deep Research model ID through Responses. It can still be selected as the normalization model if supported by the account and endpoint.
 

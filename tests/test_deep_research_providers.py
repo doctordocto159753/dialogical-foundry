@@ -3,10 +3,16 @@ import sys
 from types import SimpleNamespace
 
 import httpx
+import pytest
 
 from engine.contracts import CompletionRequest
 from engine.models import ModelConfig
-from engine.provider import AnthropicProvider, GeminiProvider, OpenAIProvider
+from engine.provider import (
+    AnthropicProvider,
+    GeminiProvider,
+    OpenAIProvider,
+    ProviderHTTPError,
+)
 
 RESEARCH_JSON = json.dumps(
     {"delta_only": False, "findings": [], "overall_notes": "normalized"}
@@ -122,6 +128,11 @@ def test_gemini_deep_research_uses_exact_agent_persists_and_normalizes(monkeypat
     result = GeminiProvider("secret").complete(completion_request)
 
     assert requests[0][2]["agent"] == agent_id
+    assert requests[0][2]["store"] is True
+    assert "system_instruction" not in requests[0][2]
+    assert requests[0][2]["input"].startswith(
+        "SYSTEM INSTRUCTIONS:\nResearch carefully and cite sources."
+    )
     assert requests[0][2]["agent_config"]["visualization"] == "auto"
     assert checkpoints[0]["remote_id"] == "interaction-1"
     assert checkpoints[-1]["raw_report"] == "raw cited report"
@@ -129,6 +140,34 @@ def test_gemini_deep_research_uses_exact_agent_persists_and_normalizes(monkeypat
         "/models/gemini-normalizer-exact:generateContent"
     )
     assert result.usage == {"input_tokens": 110, "output_tokens": 25}
+
+
+def test_gemini_http_error_includes_provider_response_body(monkeypatch):
+    def handler(_outbound):
+        return httpx.Response(
+            400,
+            json={
+                "error": {
+                    "message": "store=true is required for background interactions.",
+                    "code": "invalid_request",
+                }
+            },
+        )
+
+    install_http_transport(monkeypatch, handler)
+    completion_request = request(
+        "gemini",
+        "deep-research-preview-04-2026",
+        mode="deep_research",
+        normalization_model="gemini-2.5-flash",
+        research_poll_interval_seconds=0,
+    )
+
+    with pytest.raises(ProviderHTTPError, match="store=true is required") as caught:
+        GeminiProvider("secret").complete(completion_request)
+
+    assert caught.value.status_code == 400
+    assert caught.value.retryable is False
 
 
 def test_gemini_resume_polls_existing_interaction_without_creating_another(monkeypatch):

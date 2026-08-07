@@ -1,13 +1,14 @@
 import json
 from pathlib import Path
 
+import httpx
 import pytest
 
 import engine.executor as executor_module
 from engine import Pipeline, PipelineExecutor
 from engine.contracts import CompletionRequest, CompletionResult
 from engine.models import Layer, ModelConfig, Node, Step
-from engine.provider import LLMProvider, MockProvider
+from engine.provider import LLMProvider, MockProvider, ProviderHTTPError
 from pipelines.build_v1 import PIPELINE
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -65,6 +66,34 @@ def test_validation_retries(monkeypatch, tmp_path):
     executor.run("brief")
     assert provider.calls == 2
     assert executor.blackboard["intake"]["goal"] == "g"
+
+
+class NonRetryableProviderFailure(LLMProvider):
+    def __init__(self):
+        super().__init__()
+        self.calls = 0
+
+    def complete(self, request: CompletionRequest) -> CompletionResult:
+        self.calls += 1
+        response = httpx.Response(
+            400,
+            json={"error": {"message": "invalid request"}},
+        )
+        raise ProviderHTTPError("Gemini", response)
+
+
+def test_non_retryable_provider_error_stops_after_first_attempt(monkeypatch, tmp_path):
+    provider = NonRetryableProviderFailure()
+    monkeypatch.setattr(executor_module, "get_provider", lambda *_: provider)
+    p = pipeline()
+    p.layers = p.layers[:1]
+    p.nodes = {"intake": p.nodes["intake"]}
+    executor = PipelineExecutor(p, runs_root=tmp_path, max_retries=2)
+
+    with pytest.raises(RuntimeError, match="failed after 1 attempt"):
+        executor.run("brief")
+
+    assert provider.calls == 1
 
 
 class FailAfter(LLMProvider):

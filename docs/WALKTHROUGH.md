@@ -78,6 +78,12 @@ Anthropic and Gemini keep Idea Generator `top_k`. OpenAI automatically selects t
 
 For provider-native research, expand **Researcher**, choose a real provider, switch **Execution mode** to **Provider Deep Research**, and enter both the exact research model/agent ID and exact standard normalization model ID. Keep the default 1,800-second research timeout unless the provider/account needs a different limit. OpenAI/Gemini background jobs survive local interruption through Resume. Remember that every ideation pass starts a research job; use one pass for an inexpensive first live proof.
 
+For Gemini's current preview, a working configuration is agent
+`deep-research-preview-04-2026`, normalizer `gemini-2.5-flash`, and Base URL
+`https://generativelanguage.googleapis.com/v1beta`. Foundry uses the native
+`/interactions` background contract and places the Researcher instructions in
+the interaction input because this agent does not accept `system_instruction`.
+
 Real calls may incur provider charges. Foundry surfaces returned usage counts but does not calculate monetary cost.
 
 ## Acceptance checklist

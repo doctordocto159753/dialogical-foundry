@@ -116,12 +116,21 @@ Use an API root for OpenAI-compatible Base URLs, not a final operation path. Fou
 Only the **Researcher** node exposes `deep_research` mode. Choose one of these real providers, enter the exact research model/agent ID, and enter a separate exact standard-model ID for normalization:
 
 - OpenAI: Responses API in background mode with `web_search_preview`.
-- Gemini: Interactions API with the entered value sent as the `agent` ID.
+- Gemini: Interactions API with the entered value sent as the `agent` ID. For the
+  current preview, use `deep-research-preview-04-2026` (or
+  `deep-research-max-preview-04-2026` for the higher-cost Max variant), the
+  official Base URL `https://generativelanguage.googleapis.com/v1beta`, and a
+  standard Gemini model such as `gemini-2.5-flash` for normalization.
 - Anthropic: Messages API with the server-side `web_search_20250305` tool.
 
 OpenAI's dedicated research model is not GPT-4.1: GPT-4.1 can be used as the normalizer (or as an optional prompt-refinement model outside this app), while the research request itself needs a Deep Research model ID supported by the account. Gemini Deep Research likewise expects an agent ID, not a standard Gemini model ID.
 
 The research timeout defaults to 1,800 seconds and is independently configurable on the Researcher row. OpenAI and Gemini job IDs are checkpointed before polling, so Resume continues the same remote job instead of creating another billed job. The raw cited report is retained in checkpoint history and normalized into the Researcher JSON contract. Deep Research runs once per ideation pass; the default four passes can therefore create four paid research jobs.
+
+Gemini jobs are created with `background=true` and `store=true`. Because the
+Deep Research agent rejects `system_instruction`, Foundry prepends the full
+Researcher instructions to `input` instead. This preserves the configured node
+prompt while following the native Gemini agent contract.
 
 ## Outputs and recovery
 

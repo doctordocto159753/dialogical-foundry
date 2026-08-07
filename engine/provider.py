@@ -123,6 +123,33 @@ def _research_prompt(request: CompletionRequest) -> str:
     )
 
 
+def _gemini_research_prompt(request: CompletionRequest) -> str:
+    """Deep Research rejects system_instruction, so preserve it in the input."""
+    return f"SYSTEM INSTRUCTIONS:\n{request.system}\n\n---\n\n{_research_prompt(request)}"
+
+
+class ProviderHTTPError(RuntimeError):
+    """An HTTP provider failure with enough detail for safe retry decisions."""
+
+    def __init__(self, provider: str, response: httpx.Response):
+        self.status_code = response.status_code
+        self.retryable = self.status_code in {408, 409, 425, 429} or self.status_code >= 500
+        try:
+            detail = json.dumps(response.json(), ensure_ascii=False)
+        except (ValueError, TypeError):
+            detail = response.text.strip()
+        if not detail:
+            detail = response.reason_phrase or "request failed"
+        super().__init__(
+            f"{provider} API returned HTTP {self.status_code}: {detail[:2000]}"
+        )
+
+
+def _raise_provider_http_error(response: httpx.Response, provider: str) -> None:
+    if response.is_error:
+        raise ProviderHTTPError(provider, response)
+
+
 def _operation_identity(
     request: CompletionRequest, provider: str, base_url: str | None
 ) -> dict[str, Any]:
@@ -699,7 +726,7 @@ class GeminiProvider(LLMProvider):
                     "generationConfig": generation,
                 },
             )
-            response.raise_for_status()
+            _raise_provider_http_error(response, "Gemini")
             payload = response.json()
         usage = payload.get("usageMetadata", {})
         return CompletionResult(
@@ -731,8 +758,7 @@ class GeminiProvider(LLMProvider):
                         interactions_url,
                         headers=self._headers(),
                         json={
-                            "input": _research_prompt(request),
-                            "system_instruction": request.system,
+                            "input": _gemini_research_prompt(request),
                             "agent": request.model.model,
                             "agent_config": {
                                 "type": "deep-research",
@@ -745,9 +771,10 @@ class GeminiProvider(LLMProvider):
                                 "collaborative_planning": False,
                             },
                             "background": True,
+                            "store": True,
                         },
                     )
-                    response.raise_for_status()
+                    _raise_provider_http_error(response, "Gemini")
                     payload = response.json()
                     operation = {
                         **_operation_identity(request, "gemini", base_url),
@@ -767,7 +794,7 @@ class GeminiProvider(LLMProvider):
                         f"{interactions_url}/{quote(str(operation['remote_id']), safe='')}",
                         headers=self._headers(),
                     )
-                    poll.raise_for_status()
+                    _raise_provider_http_error(poll, "Gemini")
                     payload = poll.json()
                 while payload.get("status") in {"queued", "in_progress"}:
                     if time.monotonic() >= deadline:
@@ -788,7 +815,7 @@ class GeminiProvider(LLMProvider):
                         f"{interactions_url}/{quote(str(operation['remote_id']), safe='')}",
                         headers=self._headers(),
                     )
-                    poll.raise_for_status()
+                    _raise_provider_http_error(poll, "Gemini")
                     payload = poll.json()
                 if payload.get("status") != "completed":
                     operation = {**operation, "status": payload.get("status", "unknown")}

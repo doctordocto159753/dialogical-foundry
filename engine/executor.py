@@ -15,7 +15,7 @@ from typing import Any
 from .contracts import CompletionRequest, validate_node_output
 from .io_formats import write_layer_output
 from .models import Layer, Node, Pipeline
-from .provider import get_provider
+from .provider import ProviderHTTPError, get_provider
 from .search import SearchProvider
 from .state import STATE_VERSION, atomic_write_json, load_state
 
@@ -184,8 +184,13 @@ class PipelineExecutor:
                 validate_node_output(node.id, value)
                 break
             except Exception as exc:
-                if attempt >= self.max_retries:
-                    raise RuntimeError(f"{node.id} failed after {attempt + 1} attempts: {exc}") from exc
+                retryable = not isinstance(exc, ProviderHTTPError) or exc.retryable
+                if attempt >= self.max_retries or not retryable:
+                    attempt_count = attempt + 1
+                    attempt_label = "attempt" if attempt_count == 1 else "attempts"
+                    raise RuntimeError(
+                        f"{node.id} failed after {attempt_count} {attempt_label}: {exc}"
+                    ) from exc
                 self._emit("node.retry", node_id=node.id, attempt=attempt + 1, error=str(exc))
                 if "result" in locals():
                     session.append({"role": "assistant", "content": result.text})
