@@ -71,6 +71,12 @@ Deep Research uses the provider's native web access and therefore does not invok
 
 Gemini Deep Research does not accept `system_instruction`. Foundry therefore preserves the complete Researcher instructions by prepending them to the interaction `input`, as required by Gemini's agent contract, rather than dropping them.
 
+Use a currently available standard model with Structured Output support for
+Gemini normalization. As of August 2026, `gemini-3.1-flash-lite` is a stable,
+cost-efficient choice; `gemini-2.5-flash` may return `404 NOT_FOUND` for new
+users. Provider model availability can change, and Foundry deliberately sends
+the saved ID exactly instead of silently substituting another model.
+
 OpenAI GPT-4.1 is not the dedicated Deep Research model. OpenAI documents GPT-4.1 as an optional intermediate clarification/prompt-rewriting model; the actual research call uses a supported Deep Research model ID through Responses. It can still be selected as the normalization model if supported by the account and endpoint.
 
 Provider references: [OpenAI Deep Research](https://developers.openai.com/api/docs/guides/deep-research), [OpenAI background mode](https://developers.openai.com/api/docs/guides/background), [Gemini Deep Research Agent](https://ai.google.dev/gemini-api/docs/deep-research), [Gemini GenerateContent](https://ai.google.dev/api/generate-content), and [Anthropic web search](https://platform.claude.com/docs/en/agents-and-tools/tool-use/web-search-tool).

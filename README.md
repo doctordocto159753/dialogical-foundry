@@ -120,7 +120,9 @@ Only the **Researcher** node exposes `deep_research` mode. Choose one of these r
   current preview, use `deep-research-preview-04-2026` (or
   `deep-research-max-preview-04-2026` for the higher-cost Max variant), the
   official Base URL `https://generativelanguage.googleapis.com/v1beta`, and a
-  standard Gemini model such as `gemini-2.5-flash` for normalization.
+  current stable structured-output model such as `gemini-3.1-flash-lite` for
+  normalization. Model availability is account-dependent, so verify saved model
+  IDs against Google's current model list.
 - Anthropic: Messages API with the server-side `web_search_20250305` tool.
 
 OpenAI's dedicated research model is not GPT-4.1: GPT-4.1 can be used as the normalizer (or as an optional prompt-refinement model outside this app), while the research request itself needs a Deep Research model ID supported by the account. Gemini Deep Research likewise expects an agent ID, not a standard Gemini model ID.
