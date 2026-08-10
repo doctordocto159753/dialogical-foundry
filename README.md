@@ -10,11 +10,13 @@ The v1 boundary is deliberate: Foundry plans the target product; it does **not**
 
 - Locked L0-L3 pipeline with configurable 4/2/2 dialogue loops.
 - Mock provider for a complete offline, zero-key demonstration.
-- Anthropic and OpenAI adapters with independent per-node models and key references.
+- Anthropic, OpenAI, and Gemini adapters with independent per-node models, Base URLs, and key references.
+- Provider-native Deep Research for the Researcher node, with durable background-job resume and explicit report normalization.
 - OpenAI/no-`top_k` creativity-prompt fallback.
 - Mock or Tavily web research for the Researcher node.
 - Structured JSON validation and retry; deterministic JSON and Markdown outputs.
 - Exact, atomic checkpoints with persisted sessions, iteration history, token totals, and resume cursor.
+- Confirmed deletion of inactive runs from the archive or run detail view, including persisted events and files.
 - FastAPI REST API, replayable SSE progress, SQLite metadata/config, and filesystem outputs.
 - Encrypted local keystore whose secret values are write-only through the API.
 - Responsive React SPA with Intake, Run, and Settings views.
@@ -85,25 +87,52 @@ Open <http://127.0.0.1:8000>. The named `foundry-data` volume persists the datab
 
 ## Configure real providers
 
-1. Open **Settings → Local keys** and save an Anthropic, OpenAI, or Tavily key. Saved values are never returned to the browser; only label, provider, and fingerprint are listed.
-2. Expand a node, select its provider/model/key reference, tune sampling, and save it.
+1. Open **Settings → Local keys** and save an Anthropic, OpenAI, Gemini, or Tavily key. Saved values are never returned to the browser; only label, provider, and fingerprint are listed.
+2. Expand a node, select its provider/model/key reference, optionally set its Base URL, tune sampling, and save it. OpenAI nodes can independently use Chat Completions or streamed Responses. The model ID is sent exactly as entered.
 3. Select Tavily in **Search & defaults**, choose the Tavily key, and save defaults.
 4. Start a new run. Configuration is resolved when the run begins.
 
 The default is deliberately mock-first. Anthropic supports `top_k`; OpenAI does not, so the Idea Generator automatically switches to its prompt-level creativity fallback while retaining supported entropy parameters.
 
-OpenAI and Anthropic calls use a 30-minute response timeout per attempt by default.
+OpenAI, Anthropic, and Gemini calls use a 30-minute response timeout per attempt by default.
 Override it with `FOUNDRY_LLM_TIMEOUT_SECONDS`. Custom gateways can be selected
-with `OPENAI_BASE_URL` or `ANTHROPIC_BASE_URL` in the root `.env`:
+with provider environment variables in the root `.env`:
 
 ```dotenv
 FOUNDRY_LLM_TIMEOUT_SECONDS=1800
 OPENAI_BASE_URL=http://127.0.0.1:11434/v1
+FOUNDRY_OPENAI_COMPAT_USER_AGENT=curl/8.0
 # ANTHROPIC_BASE_URL=https://anthropic-gateway.example.com
+# GEMINI_BASE_URL=https://generativelanguage.googleapis.com/v1beta
 ```
 
 For a gateway running on the host while Foundry runs in Docker, replace
 `127.0.0.1` with `host.docker.internal`. See [configuration and providers](docs/CONFIGURATION.md).
+
+Use an API root for OpenAI-compatible Base URLs, not a final operation path. Foundry also safely normalizes accidentally pasted trailing `/chat/completions` or `/responses` paths. Choose **Responses API · streamed** for Responses-compatible gateways such as coding-agent relays: the connection receives SSE events while the model works, and Foundry assembles and validates the final JSON. Choose **Chat Completions** for gateways that only implement `/chat/completions`. Official OpenAI reasoning-family Chat Completions automatically use `max_completion_tokens` and omit unsupported sampling fields; compatible gateways retain the conventional `max_tokens` request and receive the configurable compatibility User-Agent.
+
+### Deep Research
+
+Only the **Researcher** node exposes `deep_research` mode. Choose one of these real providers, enter the exact research model/agent ID, and enter a separate exact standard-model ID for normalization:
+
+- OpenAI: Responses API in background mode with `web_search_preview`.
+- Gemini: Interactions API with the entered value sent as the `agent` ID. For the
+  current preview, use `deep-research-preview-04-2026` (or
+  `deep-research-max-preview-04-2026` for the higher-cost Max variant), the
+  official Base URL `https://generativelanguage.googleapis.com/v1beta`, and a
+  current stable structured-output model such as `gemini-3.1-flash-lite` for
+  normalization. Model availability is account-dependent, so verify saved model
+  IDs against Google's current model list.
+- Anthropic: Messages API with the server-side `web_search_20250305` tool.
+
+OpenAI's dedicated research model is not GPT-4.1: GPT-4.1 can be used as the normalizer (or as an optional prompt-refinement model outside this app), while the research request itself needs a Deep Research model ID supported by the account. Gemini Deep Research likewise expects an agent ID, not a standard Gemini model ID.
+
+The research timeout defaults to 1,800 seconds and is independently configurable on the Researcher row. OpenAI and Gemini job IDs are checkpointed before polling, so Resume continues the same remote job instead of creating another billed job. The raw cited report is retained in checkpoint history and normalized into the Researcher JSON contract. Deep Research runs once per ideation pass; the default four passes can therefore create four paid research jobs.
+
+Gemini jobs are created with `background=true` and `store=true`. Because the
+Deep Research agent rejects `system_instruction`, Foundry prepends the full
+Researcher instructions to `input` instead. This preserves the configured node
+prompt while following the native Gemini agent contract.
 
 ## Outputs and recovery
 
@@ -120,7 +149,9 @@ data/runs/<run-id>/
   outputs/L3_workpackage.{json,md}
 ```
 
-`state.json` is replaced atomically after every validated node. It records the next action cursor, sessions, append-only artifacts, tokens, retry history, and completed layers, but never secret values. If the process exits during a run, startup marks it interrupted and the Run view offers Resume. Completed actions are not called again.
+`state.json` is replaced atomically after every validated node and immediately after a provider creates a background research job. It records the next action cursor, sessions, append-only artifacts, tokens, retry history, completed layers, and any pending remote job ID, but never secret values. If the process exits during a run, startup marks it interrupted and the Run view offers Resume. Completed actions and checkpointed remote job creation are not repeated.
+
+To remove an old run, open **Run archive** or the run detail page and choose **Delete**. Foundry asks for confirmation, refuses deletion while the run is active, and then permanently removes the run record, event history, inputs, checkpoints, raw reports, and outputs. Saved provider keys are not affected.
 
 ## CLI engine
 
@@ -144,7 +175,7 @@ npm.cmd run test
 npm.cmd run build
 ```
 
-The backend suite covers pipeline shape, structured outputs, token accounting, creativity fallback, validation retry, exact resume, run APIs, SSE replay, safe downloads, settings, intake limits, and write-only keys. Real paid-provider calls remain opt-in; automated tests mock or avoid billed APIs.
+The backend suite covers pipeline shape, structured outputs, token accounting, creativity fallback, validation retry, exact local and remote-job resume, exact model/Base URL request routing for all real providers, run APIs, SSE replay, safe downloads, settings, intake limits, and write-only keys. Real paid-provider calls remain opt-in; automated tests use protocol-level fakes and never bill an API.
 
 ## Input and security limits
 
@@ -174,6 +205,7 @@ This is a local single-user security model, not a remote multi-tenant secret vau
 - **`npm.ps1` cannot be loaded:** use `npm.cmd` in PowerShell.
 - **Frontend landing page says it is not built:** run `npm.cmd ci && npm.cmd run build` inside `frontend/`, then restart FastAPI.
 - **A real node says its key is missing:** add the key in Settings and assign its reference to that node.
+- **An OpenAI-compatible coding gateway returns Cloudflare `524`:** select **Responses API · streamed** on that node when the gateway implements `/responses`. The 30-minute Foundry timeout cannot extend an upstream reverse-proxy timeout for a silent non-streaming request.
 - **Tavily is selected but not configured:** save a Tavily key and select it under Search & defaults, or switch search back to mock.
 - **Docker cannot connect:** start Docker Desktop/daemon before `docker compose up --build`.
 - **Run stopped after a restart:** open the run and choose Resume; inspect the visible error and `data/runs/<id>/state.json` if recovery is refused.

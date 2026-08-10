@@ -1,6 +1,8 @@
 export type OutputFormat = "json" | "md" | "both";
 export type RunStatus = "pending" | "running" | "completed" | "failed" | "interrupted";
-export type Provider = "mock" | "mock_notopk" | "anthropic" | "openai";
+export type Provider = "mock" | "mock_notopk" | "anthropic" | "openai" | "gemini";
+export type ModelMode = "standard" | "deep_research";
+export type OpenAIAPI = "chat_completions" | "responses";
 export type SearchProvider = "mock" | "tavily";
 
 export interface LoopCounts {
@@ -64,6 +66,15 @@ export interface NodeSettings {
   role: string;
   provider: Provider;
   model: string;
+  base_url?: string | null;
+  openai_api: OpenAIAPI;
+  mode: ModelMode;
+  normalization_model?: string | null;
+  research_timeout_seconds: number;
+  research_poll_interval_seconds: number;
+  research_max_tool_calls: number;
+  research_thinking_summaries: boolean;
+  research_visualization: boolean;
   api_key_ref?: string | null;
   temperature?: number;
   top_k?: number | null;
@@ -83,8 +94,12 @@ export interface SavedKey {
 
 export const RUN_EVENT_TYPES = [
   "run.started",
+  "run.interrupted",
   "layer.started",
   "node.started",
+  "node.research.started",
+  "node.research.poll",
+  "node.research.completed",
   "node.retry",
   "node.completed",
   "tokens.updated",
@@ -114,6 +129,10 @@ export interface RunEventPayload {
   tokens_in?: number;
   tokens_out?: number;
   resumed?: boolean;
+  provider?: string;
+  remote_id?: string;
+  remote_status?: string;
+  continuation?: number;
 }
 
 export interface RunEventEnvelope {
@@ -172,6 +191,7 @@ export const api = {
   runs: () => request<FoundryRun[]>("/api/runs"),
   run: (id: string) => request<FoundryRun>(`/api/runs/${encodeURIComponent(id)}`),
   resumeRun: (id: string) => request<{ id: string; status: "pending" }>(`/api/runs/${encodeURIComponent(id)}/resume`, { method: "POST" }),
+  deleteRun: (id: string) => request<void>(`/api/runs/${encodeURIComponent(id)}`, { method: "DELETE" }),
   outputText: async (url: string) => {
     const response = await fetch(url);
     if (!response.ok) throw new ApiError(`Output could not be loaded (${response.status})`, response.status);

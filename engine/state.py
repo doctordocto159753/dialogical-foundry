@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-STATE_VERSION = 1
+STATE_VERSION = 2
 
 
 def atomic_write_json(path: Path, value: dict[str, Any]) -> None:
@@ -21,6 +21,9 @@ def atomic_write_json(path: Path, value: dict[str, Any]) -> None:
 
 def load_state(path: Path) -> dict[str, Any]:
     value = json.loads(path.read_text(encoding="utf-8"))
-    if value.get("state_version") != STATE_VERSION:
+    if value.get("state_version") not in {1, STATE_VERSION}:
         raise ValueError(f"unsupported state version: {value.get('state_version')}")
+    if value.get("state_version") == 1:
+        value["state_version"] = STATE_VERSION
+        value["pending_operation"] = None
     return value

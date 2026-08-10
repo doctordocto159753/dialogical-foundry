@@ -62,10 +62,24 @@ class Database:
         with self.connect() as db:
             return [self._run(row) for row in db.execute("SELECT * FROM runs ORDER BY created_at DESC LIMIT ?", (limit,)).fetchall()]
 
+    def delete_run(self, run_id: str) -> bool:
+        with self._write_lock, self.connect() as db:
+            result = db.execute("DELETE FROM runs WHERE id=?", (run_id,))
+            return result.rowcount > 0
+
     def interrupt_orphans(self) -> list[str]:
         with self._write_lock, self.connect() as db:
-            run_ids = [row[0] for row in db.execute("SELECT id FROM runs WHERE status='running'").fetchall()]
-            db.execute("UPDATE runs SET status='interrupted', updated_at=? WHERE status='running'", (now(),))
+            run_ids = [
+                row[0]
+                for row in db.execute(
+                    "SELECT id FROM runs WHERE status IN ('pending','running')"
+                ).fetchall()
+            ]
+            db.execute(
+                "UPDATE runs SET status='interrupted', updated_at=? "
+                "WHERE status IN ('pending','running')",
+                (now(),),
+            )
         return run_ids
 
     def append_event(self, run_id: str, event_type: str, payload: dict[str, Any]) -> int:

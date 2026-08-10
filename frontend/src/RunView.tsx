@@ -4,6 +4,7 @@ import { api, formatBytes, FoundryRun, OutputEntry, RUN_EVENT_TYPES, RunEventEnv
 interface RunViewProps {
   runId: string | null;
   onSelectRun: (id: string) => void;
+  onRunDeleted: () => void;
   onNewRun: () => void;
 }
 
@@ -15,8 +16,9 @@ const LAYERS = [
 ] as const;
 
 const EMPTY_TOKENS: TokenUsage = { input: 0, output: 0, total: 0 };
+const TERMINAL_STATUSES = new Set<RunStatus>(["completed", "failed", "interrupted"]);
 
-export function RunView({ runId, onSelectRun, onNewRun }: RunViewProps) {
+export function RunView({ runId, onSelectRun, onRunDeleted, onNewRun }: RunViewProps) {
   const [run, setRun] = useState<FoundryRun | null>(null);
   const [recent, setRecent] = useState<FoundryRun[]>([]);
   const [events, setEvents] = useState<RunEventEnvelope[]>([]);
@@ -24,6 +26,7 @@ export function RunView({ runId, onSelectRun, onNewRun }: RunViewProps) {
   const [error, setError] = useState<string | null>(null);
   const [streamState, setStreamState] = useState<"connecting" | "live" | "reconnecting" | "closed">("closed");
   const [resuming, setResuming] = useState(false);
+  const [deleting, setDeleting] = useState<string | null>(null);
   const sourceRef = useRef<EventSource | null>(null);
 
   const refreshRun = useCallback(async (id: string) => {
@@ -78,6 +81,11 @@ export function RunView({ runId, onSelectRun, onNewRun }: RunViewProps) {
                 setStreamState("closed");
                 void refreshRun(runId).catch(() => undefined);
               }
+              if (type === "run.interrupted") {
+                source.close();
+                setStreamState("closed");
+                void refreshRun(runId).catch(() => undefined);
+              }
             } catch {
               setError("A live event arrived in an unreadable format.");
             }
@@ -125,8 +133,26 @@ export function RunView({ runId, onSelectRun, onNewRun }: RunViewProps) {
     }
   };
 
+  const deleteRun = async (target: FoundryRun) => {
+    if (!window.confirm(`Delete run ${target.id}? Its inputs, checkpoints, events, and outputs will be removed permanently.`)) return;
+    setDeleting(target.id);
+    setError(null);
+    try {
+      await api.deleteRun(target.id);
+      setRecent((items) => items.filter((item) => item.id !== target.id));
+      if (run?.id === target.id) {
+        sourceRef.current?.close();
+        onRunDeleted();
+      }
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "This run could not be deleted.");
+    } finally {
+      setDeleting(null);
+    }
+  };
+
   if (loading) return <RunLoading />;
-  if (!runId) return <RecentRuns runs={recent} error={error} onSelectRun={onSelectRun} onNewRun={onNewRun} />;
+  if (!runId) return <RecentRuns runs={recent} error={error} deleting={deleting} onSelectRun={onSelectRun} onDeleteRun={(target) => void deleteRun(target)} onNewRun={onNewRun} />;
   if (!run) return <RunNotFound error={error} onNewRun={onNewRun} />;
 
   const lastNodeStart = [...events].reverse().find((event) => event.type === "node.started");
@@ -145,6 +171,7 @@ export function RunView({ runId, onSelectRun, onNewRun }: RunViewProps) {
         <div className="run-heading-actions">
           <span className={`run-status status-${run.status}`}><i aria-hidden="true" />{statusLabel(run.status)}</span>
           <button type="button" className="secondary-action" onClick={onNewRun}>＋ New run</button>
+          {TERMINAL_STATUSES.has(run.status) ? <button type="button" className="danger-action" onClick={() => void deleteRun(run)} disabled={deleting === run.id}>{deleting === run.id ? "Deleting…" : "Delete run"}</button> : null}
         </div>
       </header>
 
@@ -211,13 +238,13 @@ function RunNotFound({ error, onNewRun }: { error: string | null; onNewRun: () =
   return <div className="view centered-state page-enter"><span className="empty-mark">×</span><p className="eyebrow">Run unavailable</p><h1>This ledger could not be opened.</h1><p>{error ?? "The run may no longer exist in the local data directory."}</p><button className="primary-action" type="button" onClick={onNewRun}><span>Start a new run</span><i>→</i></button></div>;
 }
 
-function RecentRuns({ runs, error, onSelectRun, onNewRun }: { runs: FoundryRun[]; error: string | null; onSelectRun: (id: string) => void; onNewRun: () => void }) {
+function RecentRuns({ runs, error, deleting, onSelectRun, onDeleteRun, onNewRun }: { runs: FoundryRun[]; error: string | null; deleting: string | null; onSelectRun: (id: string) => void; onDeleteRun: (run: FoundryRun) => void; onNewRun: () => void }) {
   return (
     <div className="view recent-view page-enter">
       <header className="recent-heading"><div><p className="eyebrow"><span>02</span> Run archive</p><h1>Return to the workshop.</h1><p>Open a local run to inspect its live ledger and outputs.</p></div><button className="primary-action" type="button" onClick={onNewRun}><span>Start a new run</span><i>→</i></button></header>
       {error ? <div className="inline-alert error" role="alert"><strong>Archive unavailable.</strong><span>{error}</span></div> : null}
       {!error && runs.length === 0 ? <div className="empty-ledger"><span className="empty-mark">◇</span><h2>No pages in the ledger yet.</h2><p>Your first dialogue will appear here and remain available after a restart.</p><button className="text-action" type="button" onClick={onNewRun}>Write the first brief →</button></div> : null}
-      {runs.length > 0 ? <div className="recent-table">{runs.map((item) => <button type="button" key={item.id} onClick={() => onSelectRun(item.id)}><span className={`run-status status-${item.status}`}><i />{statusLabel(item.status)}</span><span className="recent-brief" dir="auto"><strong>{item.brief}</strong><small>{item.completed_layers.length}/4 layers · {item.outputs.length} files</small></span><time dateTime={item.updated_at}>{formatDate(item.updated_at)}</time><span className="row-arrow">→</span></button>)}</div> : null}
+      {runs.length > 0 ? <div className="recent-table">{runs.map((item) => <div className={`recent-row ${TERMINAL_STATUSES.has(item.status) ? "deletable" : ""}`} key={item.id}><button className="recent-open" type="button" onClick={() => onSelectRun(item.id)}><span className={`run-status status-${item.status}`}><i />{statusLabel(item.status)}</span><span className="recent-brief" dir="auto"><strong>{item.brief}</strong><small>{item.completed_layers.length}/4 layers · {item.outputs.length} files</small></span><time dateTime={item.updated_at}>{formatDate(item.updated_at)}</time><span className="row-arrow">→</span></button>{TERMINAL_STATUSES.has(item.status) ? <button className="recent-delete" type="button" onClick={() => onDeleteRun(item)} disabled={deleting === item.id} aria-label={`Delete run ${item.id}`}>{deleting === item.id ? "…" : "Delete"}</button> : null}</div>)}</div> : null}
     </div>
   );
 }
@@ -232,7 +259,7 @@ function StreamIndicator({ state, terminal }: { state: "connecting" | "live" | "
 }
 
 function ActivityLog({ events }: { events: RunEventEnvelope[] }) {
-  const activity = events.filter((event) => ["node.started", "node.retry", "node.completed", "layer.completed", "run.completed", "run.failed"].includes(event.type)).slice(-10).reverse();
+  const activity = events.filter((event) => ["node.started", "node.research.started", "node.research.poll", "node.research.completed", "node.retry", "node.completed", "layer.completed", "run.interrupted", "run.completed", "run.failed"].includes(event.type)).slice(-10).reverse();
   return (
     <div className="activity-log" aria-live="polite">
       <div className="activity-heading"><h3>Activity</h3><span>{events.length ? `#${events[events.length - 1].seq}` : "waiting"}</span></div>
@@ -287,17 +314,23 @@ function humanize(value: string): string {
 
 function eventIcon(type: string): string {
   if (type === "node.retry" || type === "run.failed") return "!";
-  if (type === "node.completed" || type === "layer.completed" || type === "run.completed") return "✓";
+  if (type === "run.interrupted") return "Ⅱ";
+  if (type === "node.completed" || type === "node.research.completed" || type === "layer.completed" || type === "run.completed") return "✓";
+  if (type === "node.research.started" || type === "node.research.poll") return "⌁";
   return "·";
 }
 
 function eventMessage(event: RunEventEnvelope): string {
   const node = humanize(event.payload.node_id ?? event.payload.node ?? "node");
   if (event.type === "node.started") return `${node} started${event.payload.iteration !== null && event.payload.iteration !== undefined ? ` · pass ${event.payload.iteration + 1}` : ""}`;
+  if (event.type === "node.research.started") return `${event.payload.provider ?? "Provider"} research job started`;
+  if (event.type === "node.research.poll") return `${event.payload.provider ?? "Provider"} research · ${event.payload.remote_status ?? "working"}`;
+  if (event.type === "node.research.completed") return `${event.payload.provider ?? "Provider"} research report ready`;
   if (event.type === "node.completed") return `${node} finished${event.payload.ms ? ` · ${event.payload.ms} ms` : ""}`;
   if (event.type === "node.retry") return `${node} retry ${event.payload.attempt ?? ""}`.trim();
   if (event.type === "layer.completed") return `${humanize(event.payload.layer_id ?? "Layer")} stamped`;
   if (event.type === "run.completed") return "Run completed";
+  if (event.type === "run.interrupted") return "Run interrupted safely";
   if (event.type === "run.failed") return "Run failed";
   return humanize(event.type);
 }

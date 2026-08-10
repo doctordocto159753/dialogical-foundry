@@ -28,7 +28,7 @@ uv run pytest
 uv run ruff check engine server tests run.py
 ```
 
-Tests always use mock model/search providers. API tests isolate data under pytest temporary directories. Exact-resume coverage injects a provider crash, reconstructs the executor, and confirms completed calls are not duplicated.
+Offline workflow tests use mock model/search providers. Provider-contract tests use in-process fake SDKs and HTTP transports to assert exact model/agent IDs, Chat Completions and streamed Responses routing, SSE aggregation, Base URLs, tools, polling, normalization, and token aggregation without making billed calls. API tests isolate data under pytest temporary directories. Exact-resume coverage injects both local-node and post-remote-creation crashes, reconstructs the executor, and confirms completed calls and remote job creation are not duplicated.
 
 ## Frontend tests and build
 

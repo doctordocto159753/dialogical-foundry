@@ -2,15 +2,20 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import uuid
 from contextlib import asynccontextmanager
+from dataclasses import asdict
 from typing import Annotated, Any
+from urllib.parse import urlsplit
 
 import uvicorn
 from fastapi import Body, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+
+from engine.models import ModelConfig
 
 from .database import Database
 from .ingest import extract_uploads, fetch_public_github, word_count
@@ -135,6 +140,17 @@ def resume_run(run_id: str, request: Request) -> dict[str, str]:
     return {"id": run_id, "status": "pending"}
 
 
+@app.delete("/api/runs/{run_id}", status_code=204)
+def delete_run(run_id: str, request: Request) -> None:
+    _, _, manager = services(request)
+    try:
+        manager.delete(run_id)
+    except KeyError:
+        raise HTTPException(404, "run not found") from None
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+
 @app.get("/api/runs/{run_id}/events")
 async def run_events(run_id: str, request: Request):
     db, _, _ = services(request)
@@ -213,7 +229,73 @@ def node_settings(request: Request) -> list[dict[str, Any]]:
     db, _, _ = services(request)
     pipeline = json.loads((ROOT / "pipelines" / "foundry_v1.json").read_text(encoding="utf-8"))
     overrides = db.node_configs()
-    return [{"id": node["id"], "role": node["role"], **node["model"], "tools": node.get("tools", []), **overrides.get(node["id"], {})} for node in pipeline["nodes"]]
+    return [{"id": node["id"], "role": node["role"], **asdict(ModelConfig.from_dict(node["model"])), "tools": node.get("tools", []), **overrides.get(node["id"], {})} for node in pipeline["nodes"]]
+
+
+def _validate_base_url(value: Any) -> None:
+    if value in {None, ""}:
+        return
+    if not isinstance(value, str) or len(value) > 2_000 or value != value.strip():
+        raise HTTPException(422, "base URL must be a trimmed string")
+    parsed = urlsplit(value)
+    if (
+        parsed.scheme not in {"http", "https"}
+        or not parsed.netloc
+        or parsed.username
+        or parsed.password
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise HTTPException(422, "base URL must be an absolute HTTP(S) URL without credentials, query, or fragment")
+
+
+def _validated_node_config(node_id: str, value: dict[str, Any]) -> dict[str, Any]:
+    provider = value.get("provider", "mock")
+    if provider not in {"mock", "mock_notopk", "anthropic", "openai", "gemini"}:
+        raise HTTPException(422, "unsupported provider")
+    mode = value.get("mode", "standard")
+    if mode not in {"standard", "deep_research"}:
+        raise HTTPException(422, "unsupported model mode")
+    if mode == "deep_research" and node_id != "researcher":
+        raise HTTPException(422, "deep research mode is only available for the researcher node")
+    if mode == "deep_research" and provider not in {"anthropic", "openai", "gemini"}:
+        raise HTTPException(422, "deep research mode requires Anthropic, OpenAI, or Gemini")
+    openai_api = value.get("openai_api", "chat_completions")
+    if openai_api not in {"chat_completions", "responses"}:
+        raise HTTPException(422, "unsupported OpenAI API transport")
+    for field_name in ("model", "normalization_model"):
+        field_value = value.get(field_name)
+        if field_name == "normalization_model" and mode != "deep_research":
+            continue
+        if not isinstance(field_value, str) or not field_value or field_value != field_value.strip() or len(field_value) > 200:
+            raise HTTPException(422, f"{field_name} must be a non-empty, trimmed model ID")
+    _validate_base_url(value.get("base_url"))
+    numeric_ranges = {
+        "temperature": (0, 2),
+        "top_k": (1, 10_000),
+        "top_p": (0, 1),
+        "max_tokens": (1, 1_000_000),
+        "research_timeout_seconds": (1, 86_400),
+        "research_poll_interval_seconds": (0, 60),
+        "research_max_tool_calls": (1, 1_000),
+    }
+    for field_name, (minimum, maximum) in numeric_ranges.items():
+        field_value = value.get(field_name)
+        if field_value is None and field_name in {"top_k", "top_p"}:
+            continue
+        if field_value is not None and (
+            isinstance(field_value, bool)
+            or not isinstance(field_value, (int, float))
+            or not math.isfinite(field_value)
+            or field_value < minimum
+            or field_value > maximum
+        ):
+            raise HTTPException(422, f"invalid {field_name}")
+    for field_name in ("research_thinking_summaries", "research_visualization"):
+        if field_name in value and not isinstance(value[field_name], bool):
+            raise HTTPException(422, f"invalid {field_name}")
+    allowed_names = set(ModelConfig.__annotations__) | {"tools"}
+    return {key: value[key] for key in allowed_names if key in value}
 
 
 @app.put("/api/settings/nodes/{node_id}")
@@ -221,9 +303,7 @@ def put_node_settings(node_id: str, request: Request, value: Annotated[dict[str,
     valid_nodes = {item["id"] for item in node_settings(request)}
     if node_id not in valid_nodes:
         raise HTTPException(404, "node not found")
-    if value.get("provider", "mock") not in {"mock", "mock_notopk", "anthropic", "openai"}:
-        raise HTTPException(422, "unsupported provider")
-    allowed = {key: value[key] for key in ("provider", "model", "api_key_ref", "temperature", "top_k", "top_p", "max_tokens", "tools") if key in value}
+    allowed = _validated_node_config(node_id, value)
     services(request)[0].set_node_config(node_id, allowed)
     return {"id": node_id, **allowed}
 

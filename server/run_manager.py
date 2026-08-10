@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+import shutil
 import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from engine import Pipeline, PipelineExecutor
+from engine.models import ModelConfig
 from engine.search import MockSearchProvider, TavilySearchProvider
 from engine.state import atomic_write_json
 
@@ -29,7 +31,7 @@ class RunManager:
         for node_id, config in self.db.node_configs().items():
             node = next((item for item in data["nodes"] if item["id"] == node_id), None)
             if node:
-                node["model"].update({key: config[key] for key in ("provider", "model", "api_key_ref", "temperature", "top_k", "top_p", "max_tokens") if key in config})
+                node["model"].update({key: config[key] for key in ModelConfig.__annotations__ if key in config})
                 if "tools" in config:
                     node["tools"] = list(config["tools"])
         return data
@@ -55,10 +57,27 @@ class RunManager:
 
     def start(self, run_id: str, resume: bool) -> None:
         with self._lock:
+            if not self.db.get_run(run_id):
+                raise KeyError(run_id)
             if run_id in self._active:
                 raise ValueError("run is already active")
             self._active.add(run_id)
         self.pool.submit(self._execute, run_id, resume)
+
+    def delete(self, run_id: str) -> None:
+        with self._lock:
+            if run_id in self._active:
+                raise ValueError("active runs cannot be deleted")
+            if not self.db.get_run(run_id):
+                raise KeyError(run_id)
+            runs_root = self.settings.runs_dir.resolve()
+            run_dir = (runs_root / run_id).resolve()
+            if run_dir.parent != runs_root:
+                raise ValueError("invalid run directory")
+            if run_dir.exists():
+                shutil.rmtree(run_dir)
+            if not self.db.delete_run(run_id):
+                raise KeyError(run_id)
 
     def _event(self, run_id: str, event_type: str, payload: dict[str, Any]) -> None:
         self.db.append_event(run_id, event_type, payload)

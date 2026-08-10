@@ -69,12 +69,20 @@ Use JSON for a coding agent and Markdown for human review. Both are generated fr
 
 In Settings:
 
-1. Add an Anthropic or OpenAI key.
-2. Assign it to one or more nodes and choose supported models.
+1. Add an Anthropic, OpenAI, or Gemini key.
+2. Assign it to one or more nodes, enter the exact supported model ID, and optionally set a per-node Base URL. For OpenAI-compatible coding gateways, select **Responses API · streamed** when the gateway supports `/responses`; keep **Chat Completions** for `/chat/completions`-only relays.
 3. Add a Tavily key and choose Tavily for evidence-backed research.
 4. Save and start a new intake.
 
-Anthropic keeps Idea Generator `top_k`. OpenAI automatically selects the creativity fallback prompt because it has no `top_k` parameter.
+Anthropic and Gemini keep Idea Generator `top_k`. OpenAI automatically selects the creativity fallback prompt because it has no `top_k` parameter.
+
+For provider-native research, expand **Researcher**, choose a real provider, switch **Execution mode** to **Provider Deep Research**, and enter both the exact research model/agent ID and exact standard normalization model ID. Keep the default 1,800-second research timeout unless the provider/account needs a different limit. OpenAI/Gemini background jobs survive local interruption through Resume. Remember that every ideation pass starts a research job; use one pass for an inexpensive first live proof.
+
+For Gemini's current preview, a working configuration is agent
+`deep-research-preview-04-2026`, normalizer `gemini-3.1-flash-lite`, and Base URL
+`https://generativelanguage.googleapis.com/v1beta`. Foundry uses the native
+`/interactions` background contract and places the Researcher instructions in
+the interaction input because this agent does not accept `system_instruction`.
 
 Real calls may incur provider charges. Foundry surfaces returned usage counts but does not calculate monetary cost.
 
@@ -84,7 +92,8 @@ Real calls may incur provider charges. Foundry surfaces returned usage counts bu
 - [ ] Progress and token totals update live.
 - [ ] Four layer outputs are previewable and downloadable.
 - [ ] Final work package contains ordered, coded, prioritized, tagged stories.
-- [ ] Settings persist per-node provider/model/key/sampling/tools.
+- [ ] Settings persist per-node provider/model/key/Base URL/OpenAI API transport/sampling/tools and Researcher mode.
 - [ ] Saved secrets cannot be read back from the UI or API.
 - [ ] A stopped run can be resumed from its checkpoint.
+- [ ] A terminal run can be deleted from its detail page or the Run archive after confirmation; active runs are protected.
 - [ ] The same flow works from the Docker image.

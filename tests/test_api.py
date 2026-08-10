@@ -4,6 +4,7 @@ from dataclasses import replace
 from fastapi.testclient import TestClient
 
 import server.main as main_module
+from server.database import Database
 from server.ingest import is_text_path
 from server.settings import settings as base_settings
 
@@ -40,6 +41,48 @@ def test_mock_run_api_and_event_replay(tmp_path, monkeypatch):
         assert "event: tokens.updated" in replay
         assert "event: run.completed" in replay
         assert http.get(f"/api/runs/{run_id}/outputs/../../state?format=json").status_code == 404
+        run_dir = tmp_path / "runs" / run_id
+        assert run_dir.is_dir()
+        assert http.delete(f"/api/runs/{run_id}").status_code == 204
+        assert http.get(f"/api/runs/{run_id}").status_code == 404
+        assert not run_dir.exists()
+        with http.app.state.db.connect() as db:
+            assert db.execute(
+                "SELECT COUNT(*) FROM run_events WHERE run_id=?", (run_id,)
+            ).fetchone()[0] == 0
+
+
+def test_active_run_cannot_be_deleted(tmp_path, monkeypatch):
+    with client(tmp_path, monkeypatch) as http:
+        run_id = "a" * 32
+        http.app.state.db.create_run(run_id, "active", [], "json", {})
+        manager = http.app.state.manager
+        with manager._lock:
+            manager._active.add(run_id)
+        try:
+            response = http.delete(f"/api/runs/{run_id}")
+            assert response.status_code == 409
+            assert response.json()["detail"] == "active runs cannot be deleted"
+            assert http.get(f"/api/runs/{run_id}").status_code == 200
+        finally:
+            with manager._lock:
+                manager._active.discard(run_id)
+        assert http.delete(f"/api/runs/{run_id}").status_code == 204
+
+
+def test_restart_interrupts_pending_and_running_runs(tmp_path):
+    db = Database(tmp_path / "foundry.sqlite3")
+    db.initialize()
+    for run_id, status in (("pending", "pending"), ("running", "running"), ("done", "completed")):
+        db.create_run(run_id, run_id, [], "json", {})
+        db.update_run(run_id, status=status)
+
+    interrupted = db.interrupt_orphans()
+
+    assert set(interrupted) == {"pending", "running"}
+    assert db.get_run("pending")["status"] == "interrupted"
+    assert db.get_run("running")["status"] == "interrupted"
+    assert db.get_run("done")["status"] == "completed"
 
 
 def test_settings_and_write_only_keys(tmp_path, monkeypatch):
@@ -53,10 +96,69 @@ def test_settings_and_write_only_keys(tmp_path, monkeypatch):
         assert "super-secret" not in str(listing)
         nodes = http.get("/api/settings/nodes").json()
         assert len(nodes) == 9
-        updated = http.put(f"/api/settings/nodes/{nodes[0]['id']}", json={"provider": "openai", "model": "gpt-5-mini", "api_key_ref": key_id, "temperature": 0.3})
+        updated = http.put(f"/api/settings/nodes/{nodes[0]['id']}", json={"provider": "openai", "model": "gpt-5-mini", "openai_api": "responses", "api_key_ref": key_id, "temperature": 0.3})
         assert updated.status_code == 200
         assert updated.json()["api_key_ref"] == key_id
+        assert updated.json()["openai_api"] == "responses"
+        rejected = http.put(
+            f"/api/settings/nodes/{nodes[0]['id']}",
+            json={"provider": "openai", "model": "gpt-5-mini", "openai_api": "legacy"},
+        )
+        assert rejected.status_code == 422
         assert http.delete(f"/api/keys/{key_id}").status_code == 204
+
+
+def test_gemini_and_deep_research_node_configuration(tmp_path, monkeypatch):
+    with client(tmp_path, monkeypatch) as http:
+        created = http.post(
+            "/api/keys",
+            json={"provider": "gemini", "label": "Gemini", "value": "secret"},
+        )
+        key_id = created.json()["id"]
+        nodes = http.get("/api/settings/nodes").json()
+        researcher = next(node for node in nodes if node["id"] == "researcher")
+        assert researcher["mode"] == "standard"
+        updated = http.put(
+            "/api/settings/nodes/researcher",
+            json={
+                **{key: value for key, value in researcher.items() if key not in {"id", "role"}},
+                "provider": "gemini",
+                "model": "deep-research-preview-04-2026",
+                "mode": "deep_research",
+                "normalization_model": "gemini-2.5-flash",
+                "base_url": "https://generativelanguage.googleapis.com/v1beta",
+                "api_key_ref": key_id,
+                "research_timeout_seconds": 1800,
+            },
+        )
+        assert updated.status_code == 200, updated.text
+        assert updated.json()["model"] == "deep-research-preview-04-2026"
+        assert updated.json()["base_url"].endswith("/v1beta")
+
+        non_researcher = next(node for node in nodes if node["id"] != "researcher")
+        rejected = http.put(
+            f"/api/settings/nodes/{non_researcher['id']}",
+            json={
+                "provider": "gemini",
+                "model": "deep-research-preview-04-2026",
+                "mode": "deep_research",
+                "normalization_model": "gemini-2.5-flash",
+            },
+        )
+        assert rejected.status_code == 422
+
+
+def test_node_base_url_rejects_embedded_credentials(tmp_path, monkeypatch):
+    with client(tmp_path, monkeypatch) as http:
+        response = http.put(
+            "/api/settings/nodes/intake",
+            json={
+                "provider": "openai",
+                "model": "gpt-exact",
+                "base_url": "https://secret@example.com/v1",
+            },
+        )
+        assert response.status_code == 422
 
 
 def test_intake_limits(tmp_path, monkeypatch):

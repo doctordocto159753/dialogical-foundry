@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from "react";
-import { api, AppSettings, LoopCounts, NodeSettings, OutputFormat, Provider, SavedKey, SearchProvider } from "./api";
+import { api, AppSettings, LoopCounts, ModelMode, NodeSettings, OpenAIAPI, OutputFormat, Provider, SavedKey, SearchProvider } from "./api";
 
 const FALLBACK_SETTINGS: AppSettings = {
   default_format: "json",
@@ -97,7 +97,7 @@ export function SettingsView() {
 
       <section className="settings-section nodes-section" aria-labelledby="nodes-title">
         <div className="settings-section-title"><span className="section-index">C</span><div><h2 id="nodes-title">Node bench</h2><p>Nine roles, independently configurable. Expand only the instrument you need.</p></div><span className="node-count">{nodes.length.toString().padStart(2, "0")} NODES</span></div>
-        <div className="provider-note"><span>i</span><p><strong>OpenAI does not support top-k.</strong> The executor omits that parameter and automatically selects the creative prompt fallback where needed.</p></div>
+        <div className="provider-note"><span>i</span><p><strong>Model IDs are passed through exactly as entered.</strong> A node Base URL overrides its provider environment variable. Deep Research is available only on Researcher and uses a separate normalization model.</p></div>
         <div className="node-list">
           {nodes.map((node, index) => <NodeRow key={node.id} node={node} index={index} keys={keys} onSaved={(saved) => { setNodes((items) => items.map((item) => item.id === node.id ? { ...item, ...saved, role: item.role } : item)); setNotice(`${node.role} configuration saved.`); }} onError={setError} />)}
         </div>
@@ -129,13 +129,15 @@ function KeyCreator({ onCreated, onError }: { onCreated: (key: SavedKey) => void
     }
   };
 
-  return <form className="key-form" onSubmit={submit}><label><span>Provider</span><select value={provider} onChange={(event) => setProvider(event.target.value)}><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option><option value="tavily">Tavily</option></select></label><label><span>Label</span><input value={label} onChange={(event) => setLabel(event.target.value)} placeholder="e.g. personal-openai" maxLength={80} /></label><label className="secret-field"><span>Secret value</span><input type="password" autoComplete="new-password" value={secret} onChange={(event) => setSecret(event.target.value)} placeholder="Written once, never displayed" /></label><button className="save-action" type="submit" disabled={saving}>{saving ? "Storing…" : "Store key"}</button></form>;
+  return <form className="key-form" onSubmit={submit}><label><span>Provider</span><select value={provider} onChange={(event) => setProvider(event.target.value)}><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option><option value="gemini">Gemini</option><option value="tavily">Tavily</option></select></label><label><span>Label</span><input value={label} onChange={(event) => setLabel(event.target.value)} placeholder="e.g. personal-openai" maxLength={80} /></label><label className="secret-field"><span>Secret value</span><input type="password" autoComplete="new-password" value={secret} onChange={(event) => setSecret(event.target.value)} placeholder="Written once, never displayed" /></label><button className="save-action" type="submit" disabled={saving}>{saving ? "Storing…" : "Store key"}</button></form>;
 }
 
 function NodeRow({ node, index, keys, onSaved, onError }: { node: NodeSettings; index: number; keys: SavedKey[]; onSaved: (node: NodeSettings) => void; onError: (message: string | null) => void }) {
   const [draft, setDraft] = useState(node);
   const [saving, setSaving] = useState(false);
   const isOpenAi = draft.provider === "openai";
+  const isResearcher = node.id === "researcher";
+  const isDeepResearch = isResearcher && draft.mode === "deep_research";
   const matchingKeys = keys.filter((key) => key.provider === draft.provider);
 
   const patch = <K extends keyof NodeSettings>(key: K, value: NodeSettings[K]) => setDraft((current) => ({ ...current, [key]: value }));
@@ -146,6 +148,15 @@ function NodeRow({ node, index, keys, onSaved, onError }: { node: NodeSettings; 
       const saved = await api.saveNode(node.id, {
         provider: draft.provider,
         model: draft.model,
+        base_url: draft.base_url?.trim() || null,
+        openai_api: draft.openai_api,
+        mode: draft.mode,
+        normalization_model: draft.normalization_model || null,
+        research_timeout_seconds: draft.research_timeout_seconds,
+        research_poll_interval_seconds: draft.research_poll_interval_seconds,
+        research_max_tool_calls: draft.research_max_tool_calls,
+        research_thinking_summaries: draft.research_thinking_summaries,
+        research_visualization: draft.research_visualization,
         api_key_ref: draft.api_key_ref || null,
         temperature: draft.temperature,
         top_k: isOpenAi ? null : draft.top_k,
@@ -171,15 +182,26 @@ function NodeRow({ node, index, keys, onSaved, onError }: { node: NodeSettings; 
         <span className="disclosure-mark" aria-hidden="true" />
       </summary>
       <div className="node-config">
-        <label><span>Provider</span><select value={draft.provider} onChange={(event) => patch("provider", event.target.value as Provider)}><option value="mock">Mock</option><option value="mock_notopk">Mock · no top-k</option><option value="anthropic">Anthropic</option><option value="openai">OpenAI</option></select></label>
-        <label><span>Model</span><input value={draft.model} onChange={(event) => patch("model", event.target.value)} /></label>
+        <label><span>Provider</span><select value={draft.provider} onChange={(event) => { const provider = event.target.value as Provider; patch("provider", provider); if (provider.startsWith("mock")) patch("mode", "standard"); }}><option value="mock">Mock</option><option value="mock_notopk">Mock · no top-k</option><option value="anthropic">Anthropic</option><option value="openai">OpenAI</option><option value="gemini">Gemini</option></select></label>
+        {isResearcher ? <label><span>Execution mode</span><select value={draft.mode} disabled={draft.provider.startsWith("mock")} onChange={(event) => patch("mode", event.target.value as ModelMode)}><option value="standard">Standard completion</option><option value="deep_research">Provider Deep Research</option></select></label> : null}
+        {isOpenAi ? <label><span>OpenAI API <small>standard + normalization</small></span><select value={draft.openai_api} onChange={(event) => patch("openai_api", event.target.value as OpenAIAPI)}><option value="responses">Responses API · streamed</option><option value="chat_completions">Chat Completions</option></select></label> : null}
+        <label><span>{draft.provider === "gemini" && isDeepResearch ? "Agent ID" : "Model ID"}</span><input value={draft.model} onChange={(event) => patch("model", event.target.value)} placeholder={draft.provider === "gemini" && isDeepResearch ? "deep-research-preview-04-2026" : "Exact provider model ID"} /></label>
         <label><span>Key reference</span><select value={draft.api_key_ref ?? ""} disabled={draft.provider.startsWith("mock")} onChange={(event) => patch("api_key_ref", event.target.value || null)}><option value="">{draft.provider.startsWith("mock") ? "Not needed" : "Select saved key"}</option>{matchingKeys.map((key) => <option key={key.id} value={key.id}>{key.label} · {key.fingerprint}</option>)}</select></label>
+        <label className="base-url-field"><span>Base URL <small>blank = environment/provider default</small></span><input type="url" value={draft.base_url ?? ""} onChange={(event) => patch("base_url", event.target.value || null)} placeholder={draft.provider === "gemini" ? "https://generativelanguage.googleapis.com/v1beta" : draft.provider === "openai" ? "https://api.openai.com/v1" : "Provider API root"} /></label>
         <label><span>Temperature</span><input type="number" step="0.1" min="0" max="2" value={draft.temperature ?? ""} onChange={(event) => patch("temperature", event.target.value === "" ? undefined : Number(event.target.value))} /></label>
         <label><span>Top-k</span><input type="number" min="1" disabled={isOpenAi} value={isOpenAi ? "" : draft.top_k ?? ""} placeholder={isOpenAi ? "Fallback" : "Unset"} onChange={(event) => patch("top_k", event.target.value === "" ? null : Number(event.target.value))} /></label>
         <label><span>Top-p</span><input type="number" step="0.01" min="0" max="1" value={draft.top_p ?? ""} placeholder="Unset" onChange={(event) => patch("top_p", event.target.value === "" ? null : Number(event.target.value))} /></label>
         <label><span>Max tokens</span><input type="number" min="1" value={draft.max_tokens ?? ""} placeholder="Provider default" onChange={(event) => patch("max_tokens", event.target.value === "" ? null : Number(event.target.value))} /></label>
         <label className="tools-field"><span>Tools <small>comma-separated</small></span><input value={draft.tools.join(", ")} onChange={(event) => patch("tools", event.target.value.split(",").map((item) => item.trim()).filter(Boolean))} placeholder="web_search" /></label>
-        <div className="node-save"><p>{isOpenAi ? "Creative fallback will be automatic." : draft.provider.startsWith("mock") ? "Deterministic and key-free." : "Uses the selected local key reference."}</p><button type="button" className="save-action" onClick={() => void save()} disabled={saving}>{saving ? "Saving…" : "Save node"}</button></div>
+        {isDeepResearch ? <>
+          <div className="deep-research-note"><strong>Long-running, billed workflow</strong><span>This node runs once per ideation pass. With the default loop count, Deep Research starts four provider jobs.</span></div>
+          <label className="normalizer-field"><span>Normalization model ID <small>exact standard model ID</small></span><input value={draft.normalization_model ?? ""} onChange={(event) => patch("normalization_model", event.target.value || null)} placeholder={draft.provider === "gemini" ? "gemini-3.1-flash-lite" : draft.provider === "openai" ? "gpt-4.1-mini" : "claude standard model ID"} /></label>
+          <label><span>Research timeout <small>seconds</small></span><input type="number" min="1" max="86400" value={draft.research_timeout_seconds} onChange={(event) => patch("research_timeout_seconds", Number(event.target.value))} /></label>
+          <label><span>Poll interval <small>seconds</small></span><input type="number" min="0" max="60" step="0.5" disabled={draft.provider === "anthropic"} value={draft.research_poll_interval_seconds} onChange={(event) => patch("research_poll_interval_seconds", Number(event.target.value))} /></label>
+          <label><span>{draft.provider === "anthropic" ? "Max searches" : "Max tool calls"}</span><input type="number" min="1" max="1000" disabled={draft.provider === "gemini"} value={draft.research_max_tool_calls} onChange={(event) => patch("research_max_tool_calls", Number(event.target.value))} /></label>
+          {draft.provider === "gemini" ? <label className="check-field"><span>Gemini agent options</span><span className="check-option"><input type="checkbox" checked={draft.research_thinking_summaries} onChange={(event) => patch("research_thinking_summaries", event.target.checked)} /> Thinking summaries</span><span className="check-option"><input type="checkbox" checked={draft.research_visualization} onChange={(event) => patch("research_visualization", event.target.checked)} /> Visualizations</span></label> : null}
+        </> : null}
+        <div className="node-save"><p>{isOpenAi && draft.openai_api === "responses" ? "Responses streaming keeps compatible gateway connections active." : isOpenAi ? "Creative fallback will be automatic." : draft.provider.startsWith("mock") ? "Deterministic and key-free." : "Uses the selected local key reference."}</p><button type="button" className="save-action" onClick={() => void save()} disabled={saving}>{saving ? "Saving…" : "Save node"}</button></div>
       </div>
     </details>
   );
